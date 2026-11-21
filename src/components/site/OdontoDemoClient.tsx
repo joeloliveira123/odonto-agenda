@@ -203,94 +203,67 @@ export function OdontoDemoClient({
     }
   }
 
-  async function handleBookingSubmit(e: React.FormEvent) {
+  function handleBookingSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setFormError(null);
-
-    if (!selectedTreatment) {
-      setFormError("Selecione um tratamento.");
-      return;
-    }
-    if (!selectedSlot) {
-      setFormError("Selecione um horário disponível.");
-      return;
-    }
-    if (busySlots.has(selectedSlot)) {
-      setFormError("Este horário já está ocupado nesta demonstração.");
+    if (!selectedTreatment || !selectedSlot) {
+      setFormError("Escolha o tratamento e um horário disponível antes de enviar.");
       return;
     }
 
-    const parsed = appointmentRequestInputSchema.safeParse({
+    const validation = appointmentRequestInputSchema.safeParse({
       tenantId: clinic.tenantId,
-      treatmentId: selectedTreatment.id,
-      staffId: selectedDentistId,
-      dateIso: selectedDay.iso,
-      slotTime: selectedSlot,
       patientName,
       patientPhone,
-      administrativeNotes: patientNotes,
-      consentAccepted: true
+      treatmentId: selectedTreatment.id,
+      professionalId: selectedDentistId,
+      dateIso: selectedDay.iso,
+      slotTime: selectedSlot,
+      notes: patientNotes || undefined
     });
 
-    if (!parsed.success) {
-      setFormError(parsed.error.issues[0]?.message ?? "Verifique os dados informados.");
+    if (!validation.success) {
+      setFormError(validation.error.issues[0]?.message ?? "Dados inválidos.");
       return;
     }
 
-    const dentistLabel = selectedDentist
-      ? `${selectedDentist.displayName} (${selectedDentist.specialty})`
-      : "Qualquer Especialista Disponível";
-
-    try {
-      const response = await fetch("/api/appointments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...parsed.data,
-          treatmentName: selectedTreatment.displayName,
-          dentistName: dentistLabel,
-          dateLabel: `${selectedDay.label} (${selectedDay.shortDate})`,
-          demoPriceBrl: selectedTreatment.demoPriceBrl
-        })
-      });
-
-      if (response.ok) {
-        const payload = (await response.json()) as { data: AppointmentRequest };
-        setAppointments((prev) => [payload.data, ...prev]);
-        setLastRequested(payload.data);
-        return;
-      }
-    } catch {
-      // Fallback local para modo demonstração offline
+    if (busySlots.has(selectedSlot)) {
+      setFormError("Este horário acabou de ser ocupado. Selecione outro.");
+      return;
     }
 
-    const newReq: AppointmentRequest = {
+    setFormError(null);
+
+    const created: AppointmentRequest = {
       id: `req-${Date.now()}`,
       tenantId: clinic.tenantId,
+      patientContactId: `demo-contact-${Date.now()}`,
+      patientName: validation.data.patientName,
+      patientPhone: validation.data.patientPhone,
       treatmentId: selectedTreatment.id,
       treatmentName: selectedTreatment.displayName,
-      staffId: selectedDentistId,
-      dentistName: dentistLabel,
+      professionalId: selectedDentist?.id,
+      professionalName: selectedDentist?.displayName ?? "Primeiro horário livre",
       dateIso: selectedDay.iso,
       dateLabel: `${selectedDay.label} (${selectedDay.shortDate})`,
       slotTime: selectedSlot,
+      estimatedDurationMinutes: selectedTreatment.estimatedDurationMinutes,
       demoPriceBrl: selectedTreatment.demoPriceBrl,
-      patientName: parsed.data.patientName,
-      patientPhone: parsed.data.patientPhone,
-      administrativeNotes: parsed.data.administrativeNotes || undefined,
+      notes: validation.data.notes,
       status: "REQUESTED",
-      createdAtIso: new Date().toISOString()
+      source: "web_demo",
+      createdAt: new Date().toISOString()
     };
 
-    setAppointments((prev) => [newReq, ...prev]);
-    setLastRequested(newReq);
+    setAppointments((prev) => [created, ...prev]);
+    setLastRequested(created);
   }
 
   function handleAddProcedure() {
     const parsed = newTreatmentInputSchema.safeParse({
       displayName: newProcName,
       demoPriceBrl: Number(newProcPrice),
-      estimatedDurationMinutes: Number(newProcDur) || 45
+      estimatedDurationMinutes: Number(newProcDur) || 45,
+      category: "Estetica"
     });
 
     if (!parsed.success) return;
@@ -299,7 +272,7 @@ export function OdontoDemoClient({
       id: `custom-${Date.now()}`,
       tenantId: clinic.tenantId,
       slug: `personalizado-${Date.now()}`,
-      category: "Estetica",
+      category: parsed.data.category,
       categoryLabel: "Procedimento da Sua Clínica",
       displayName: parsed.data.displayName,
       estimatedDurationMinutes: parsed.data.estimatedDurationMinutes,
@@ -307,20 +280,7 @@ export function OdontoDemoClient({
       overview:
         "Procedimento personalizado adicionado no painel de demonstração da sua clínica.",
       clinicDifferential: `Protocolo personalizado configurado pela equipe da ${clinic.name}.`,
-      indications: ["Avaliação personalizada em consultório"],
-      contraindicationsHighLevel: ["Avaliadas individualmente pelo cirurgião-dentista"],
-      stepByStepProcess: [
-        {
-          stepNumber: 1,
-          title: "Avaliação clínica inicial",
-          description: "Exame detalhado e alinhamento de expectativas."
-        }
-      ],
-      preVisitPreparation: ["Trazer exames odontológicos anteriores, se houver"],
-      postCareGuidance: ["Seguir as recomendações entregues pelo especialista"],
-      expectedDurationLabel: `Sessão de aproximadamente ${parsed.data.estimatedDurationMinutes} minutos`,
-      recoveryTimeline: "Conforme orientação individualizada em consulta",
-      faqIds: []
+      active: true
     };
 
     setTreatments((prev) => [custom, ...prev]);
@@ -449,7 +409,7 @@ export function OdontoDemoClient({
                 {clinic.name}
               </div>
               <div className="text-xs text-[#4A6862]">
-                {clinic.cityLabel} · {clinic.croLabel}
+                {clinic.subtitle}
               </div>
             </div>
           </div>
@@ -947,13 +907,6 @@ export function OdontoDemoClient({
                         <p className="text-sm text-[#385751] leading-relaxed mb-3">
                           {t.overview}
                         </p>
-
-                        {t.indications.length > 0 && (
-                          <div className="mb-3 text-xs text-[#4A6862]">
-                            <strong className="text-[#0E2925]">Indicado para: </strong>
-                            {t.indications.slice(0, 2).join(" · ")}
-                          </div>
-                        )}
 
                         <div
                           className="bg-[#F6F9F7] border-l-4 rounded-r-2xl p-3.5 text-xs text-[#112A26] mb-4"
@@ -1609,11 +1562,11 @@ export function OdontoDemoClient({
                   <div>
                     <strong className="text-sm block text-[#0E2925]">{apt.patientName}</strong>
                     <span className="text-xs text-[#4A6862]">
-                      {apt.treatmentName} · {apt.dentistName}
+                      {apt.treatmentName} · {apt.professionalName}
                     </span>
-                    {apt.administrativeNotes && (
+                    {apt.notes && (
                       <span className="block text-xs italic text-[#4A6862] mt-0.5">
-                        Obs: “{apt.administrativeNotes}”
+                        Obs: “{apt.notes}”
                       </span>
                     )}
                   </div>
