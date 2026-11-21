@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import type {
   AppointmentRequest,
@@ -94,7 +95,10 @@ export function OdontoDemoClient({
   const [appointments, setAppointments] = useState<AppointmentRequest[]>(initialAppointments);
 
   const [activeView, setActiveView] = useState<"patient" | "clinic">("patient");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [treatmentCat, setTreatmentCat] = useState<"all" | TreatmentCategory>("all");
+  const [treatmentSearch, setTreatmentSearch] = useState("");
+  const [faqSearch, setFaqSearch] = useState("");
   const [selectedTreatmentId, setSelectedTreatmentId] = useState<string>(
     initialTreatments[0]?.id ?? ""
   );
@@ -128,11 +132,22 @@ export function OdontoDemoClient({
     [initialStaff, selectedDentistId]
   );
 
-  const filteredTreatments = useMemo(
-    () =>
-      treatments.filter((t) => treatmentCat === "all" || t.category === treatmentCat),
-    [treatments, treatmentCat]
-  );
+  const filteredTreatments = useMemo(() => {
+    const q = treatmentSearch.trim().toLowerCase();
+    return treatments.filter((t) => {
+      if (treatmentCat !== "all" && t.category !== treatmentCat) return false;
+      if (!q) return true;
+      return `${t.displayName} ${t.overview} ${t.categoryLabel}`.toLowerCase().includes(q);
+    });
+  }, [treatments, treatmentCat, treatmentSearch]);
+
+  const filteredFaqs = useMemo(() => {
+    const q = faqSearch.trim().toLowerCase();
+    if (!q) return initialFaqs;
+    return initialFaqs.filter((f) =>
+      `${f.question} ${f.answer} ${f.category}`.toLowerCase().includes(q)
+    );
+  }, [initialFaqs, faqSearch]);
 
   const busySlots = useMemo(() => {
     return new Set(
@@ -361,6 +376,9 @@ export function OdontoDemoClient({
             <a href="#tratamentos" className="hover:text-[#0F4C5C]">
               Tratamentos
             </a>
+            <a href="#estrutura" className="hover:text-[#0F4C5C]">
+              Estrutura
+            </a>
             <a href="#equipe" className="hover:text-[#0F4C5C]">
               Corpo Clínico
             </a>
@@ -369,10 +387,20 @@ export function OdontoDemoClient({
             </a>
           </nav>
 
-          <div
-            className="inline-flex bg-[#F3EFE9] p-1 rounded-lg border border-[#E5DFD7]"
-            role="tablist"
-          >
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((v) => !v)}
+              aria-expanded={mobileMenuOpen}
+              aria-label="Abrir menu de navegação"
+              className="md:hidden px-2.5 py-1.5 rounded-lg border border-[#E5DFD7] text-xs font-semibold"
+            >
+              Menu
+            </button>
+            <div
+              className="inline-flex bg-[#F3EFE9] p-1 rounded-lg border border-[#E5DFD7]"
+              role="tablist"
+            >
             <button
               type="button"
               role="tab"
@@ -405,8 +433,22 @@ export function OdontoDemoClient({
                 {activeAppointments.length}
               </span>
             </button>
+            </div>
           </div>
         </div>
+        {mobileMenuOpen && (
+          <nav
+            aria-label="Menu mobile"
+            className="md:hidden border-t border-[#E5DFD7] bg-white px-4 py-3 flex flex-wrap gap-4 text-xs font-semibold text-[#52606D]"
+          >
+            <a href="#sobre" onClick={() => setMobileMenuOpen(false)}>A Clínica</a>
+            <a href="#tratamentos" onClick={() => setMobileMenuOpen(false)}>Tratamentos</a>
+            <a href="#estrutura" onClick={() => setMobileMenuOpen(false)}>Estrutura</a>
+            <a href="#equipe" onClick={() => setMobileMenuOpen(false)}>Corpo Clínico</a>
+            <a href="#duvidas" onClick={() => setMobileMenuOpen(false)}>Dúvidas</a>
+            <a href="#contato" onClick={() => setMobileMenuOpen(false)}>Contato</a>
+          </nav>
+        )}
       </header>
 
       {/* AVISO TRANSPARENTE DE MODO DEMO */}
@@ -528,7 +570,15 @@ export function OdontoDemoClient({
                     Tratamentos da {clinic.name}
                   </h2>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="search"
+                    value={treatmentSearch}
+                    onChange={(e) => setTreatmentSearch(e.target.value)}
+                    placeholder="Buscar tratamento..."
+                    aria-label="Buscar tratamento"
+                    className="bg-white border border-[#CFC6BA] rounded-lg px-3 py-1.5 text-xs min-w-[190px]"
+                  />
                   {(
                     [
                       ["all", "Todos"],
@@ -588,14 +638,23 @@ export function OdontoDemoClient({
                         </strong>
                         {t.clinicDifferential}
                       </div>
-                      <div className="flex items-center justify-between pt-3 border-t border-[#E5DFD7] text-sm">
+                      <div className="flex items-center justify-between pt-3 border-t border-[#E5DFD7] text-sm gap-2 flex-wrap">
                         <strong style={{ color: clinic.branding.primaryColor }}>
                           {formatBRL(t.demoPriceBrl)} (Demo)
                         </strong>
-                        <span className="text-xs text-[#52606D]">
-                          ~{t.estimatedDurationMinutes} min ·{" "}
-                          {isSelected ? "Selecionado ✓" : "Selecionar"}
-                        </span>
+                        <div className="flex items-center gap-3 text-xs">
+                          <Link
+                            href={`/tratamentos/${t.slug}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="font-semibold underline text-[#0F4C5C]"
+                          >
+                            Ler guia completo →
+                          </Link>
+                          <span className="text-[#52606D]">
+                            ~{t.estimatedDurationMinutes} min ·{" "}
+                            {isSelected ? "Selecionado ✓" : "Selecionar"}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   );
@@ -888,17 +947,75 @@ export function OdontoDemoClient({
             </div>
           </section>
 
-          {/* FAQ */}
-          <section id="duvidas" className="py-14 bg-white border-t border-[#E5DFD7]">
-            <div className="max-w-3xl mx-auto px-4">
+          {/* ESTRUTURA & TECNOLOGIA (DEMO) */}
+          <section id="estrutura" className="py-14 bg-[#14212B] text-[#FAF8F5]">
+            <div className="max-w-6xl mx-auto px-4">
               <span className="text-xs font-bold tracking-[0.14em] text-[#C87D55]">
-                PERGUNTAS FREQUENTES
+                ESTRUTURA &amp; CONFORTO (RECURSOS DEMO)
               </span>
               <h2 className="font-serif text-3xl font-semibold mt-1 mb-6">
-                Tire Suas Dúvidas
+                Ambiente Pensado para Seu Bem-Estar
               </h2>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <article className="bg-white/5 border border-white/10 rounded-2xl p-5">
+                  <h3 className="font-serif text-lg font-semibold mb-1.5">
+                    Escaneamento Digital 3D
+                  </h3>
+                  <p className="text-sm text-slate-300">
+                    Exemplo de fluxo digital que reduz o desconforto de moldagens convencionais.
+                  </p>
+                </article>
+                <article className="bg-white/5 border border-white/10 rounded-2xl p-5">
+                  <h3 className="font-serif text-lg font-semibold mb-1.5">
+                    Biossegurança e Esterilização
+                  </h3>
+                  <p className="text-sm text-slate-300">
+                    Protocolos rigorosos de esterilização de instrumentais entre cada atendimento.
+                  </p>
+                </article>
+                <article className="bg-white/5 border border-white/10 rounded-2xl p-5">
+                  <h3 className="font-serif text-lg font-semibold mb-1.5">
+                    Acessibilidade e Recepção
+                  </h3>
+                  <p className="text-sm text-slate-300">
+                    Espaço planejado para acolhimento tranquilo, pontualidade e clareza.
+                  </p>
+                </article>
+                <article className="bg-white/5 border border-white/10 rounded-2xl p-5">
+                  <h3 className="font-serif text-lg font-semibold mb-1.5">
+                    Orientações Pré-Consulta
+                  </h3>
+                  <p className="text-sm text-slate-300">
+                    Traga exames recentes se tiver e informe medicações ou alergias no atendimento.
+                  </p>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          {/* FAQ PESQUISÁVEL */}
+          <section id="duvidas" className="py-14 bg-white border-t border-[#E5DFD7]">
+            <div className="max-w-3xl mx-auto px-4">
+              <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
+                <div>
+                  <span className="text-xs font-bold tracking-[0.14em] text-[#C87D55]">
+                    PERGUNTAS FREQUENTES
+                  </span>
+                  <h2 className="font-serif text-3xl font-semibold mt-1">
+                    Tire Suas Dúvidas
+                  </h2>
+                </div>
+                <input
+                  type="search"
+                  value={faqSearch}
+                  onChange={(e) => setFaqSearch(e.target.value)}
+                  placeholder="Buscar nas dúvidas..."
+                  aria-label="Buscar perguntas frequentes"
+                  className="bg-[#FAF8F5] border border-[#CFC6BA] rounded-lg px-3 py-1.5 text-xs min-w-[210px]"
+                />
+              </div>
               <div className="space-y-3">
-                {initialFaqs.map((faq, index) => (
+                {filteredFaqs.map((faq, index) => (
                   <details
                     key={faq.id}
                     open={index === 0}
@@ -911,6 +1028,33 @@ export function OdontoDemoClient({
                   </details>
                 ))}
               </div>
+            </div>
+          </section>
+
+          {/* CONTATO & LOCALIZAÇÃO */}
+          <section id="contato" className="py-12 bg-[#F3EFE9] border-t border-[#E5DFD7]">
+            <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-between gap-6">
+              <div className="space-y-1">
+                <span className="text-xs font-bold tracking-[0.14em] text-[#C87D55]">
+                  CONTATO &amp; LOCALIZAÇÃO (DEMO)
+                </span>
+                <h2 className="font-serif text-2xl font-semibold">{clinic.name}</h2>
+                <p className="text-sm text-[#52606D]">{clinic.address}</p>
+                <p className="text-sm text-[#52606D]">{clinic.hoursLabel}</p>
+              </div>
+              <a
+                href={buildSafeWhatsAppHandoffUrl(
+                  clinic.whatsappPhone,
+                  clinic.name,
+                  "próximos horários",
+                  "horário comercial"
+                )}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-[#0F766E] text-white text-sm font-semibold px-5 py-3 rounded-lg"
+              >
+                Falar com a Recepção no WhatsApp
+              </a>
             </div>
           </section>
         </main>
@@ -1141,14 +1285,19 @@ export function OdontoDemoClient({
       )}
 
       {/* RODAPÉ */}
-      <footer className="bg-[#14212B] text-slate-300 py-6 text-xs">
+      <footer className="bg-[#14212B] text-slate-300 py-6 text-xs border-t border-white/10">
         <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-between gap-3">
           <span>
             <strong className="text-white">{clinic.name}</strong> · {clinic.address}
           </span>
-          <span>
-            Desenvolvido por <strong className="text-white">Joel Oliveira.</strong>
-          </span>
+          <div className="flex items-center gap-4">
+            <Link href="/privacidade" className="underline hover:text-white">
+              Privacidade &amp; LGPD
+            </Link>
+            <span>
+              Desenvolvido por <strong className="text-white">Joel Oliveira.</strong>
+            </span>
+          </div>
         </div>
       </footer>
     </div>
