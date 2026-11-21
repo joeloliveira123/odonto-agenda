@@ -57,6 +57,15 @@ const ACTIVE_STATUSES = new Set<AppointmentStatus>([
   "RESCHEDULE_REQUESTED"
 ]);
 
+const STAFF_QUOTES: Record<string, string> = {
+  "staff-camila":
+    "“Acredito que um sorriso bonito nunca deve parecer artificial. Planejamos cada detalhe junto com você na tela antes de tocar no dente.”",
+  "staff-rafael":
+    "“Meu papel é devolver a segurança de mastigar e sorrir sem dor, usando planejamento 3D para procedimentos rápidos e previsíveis.”",
+  "staff-juliana":
+    "“Muitos pacientes chegam com receio por experiências antigas. Aqui fazemos pausas, explicamos cada passo e respeitamos o seu tempo.”"
+};
+
 function formatBRL(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -160,7 +169,7 @@ export function OdontoDemoClient({
   }, [appointments, selectedDay]);
 
   const activeAppointments = useMemo(
-    () => appointments.filter((a) => a.status !== "CANCELLED"),
+    () => appointments.filter((a) => ACTIVE_STATUSES.has(a.status)),
     [appointments]
   );
 
@@ -182,125 +191,181 @@ export function OdontoDemoClient({
     [activeAppointments]
   );
 
-  const filteredAdminList = useMemo(
-    () =>
-      appointments.filter(
-        (a) => statusFilter === "all" || a.status === statusFilter
-      ),
-    [appointments, statusFilter]
-  );
+  const filteredAppointments = useMemo(() => {
+    if (statusFilter === "all") return appointments;
+    return appointments.filter((a) => a.status === statusFilter);
+  }, [appointments, statusFilter]);
 
-  function handleBookingSubmit(e: React.FormEvent) {
+  function handleSelectUrgency() {
+    const urgencyTreatment = treatments.find((t) => t.category === "Urgencia");
+    if (urgencyTreatment) {
+      setSelectedTreatmentId(urgencyTreatment.id);
+    }
+  }
+
+  async function handleBookingSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedTreatment || !selectedSlot) {
-      setFormError("Escolha o tratamento e um horário disponível antes de enviar.");
-      return;
-    }
-
-    const validation = appointmentRequestInputSchema.safeParse({
-      tenantId: clinic.tenantId,
-      patientName,
-      patientPhone,
-      treatmentId: selectedTreatment.id,
-      professionalId: selectedDentistId,
-      dateIso: selectedDay.iso,
-      slotTime: selectedSlot,
-      notes: patientNotes || undefined
-    });
-
-    if (!validation.success) {
-      setFormError(validation.error.issues[0]?.message ?? "Dados inválidos.");
-      return;
-    }
-
-    if (busySlots.has(selectedSlot)) {
-      setFormError("Este horário acabou de ser ocupado. Selecione outro.");
-      return;
-    }
-
     setFormError(null);
 
-    const created: AppointmentRequest = {
+    if (!selectedTreatment) {
+      setFormError("Selecione um tratamento.");
+      return;
+    }
+    if (!selectedSlot) {
+      setFormError("Selecione um horário disponível.");
+      return;
+    }
+    if (busySlots.has(selectedSlot)) {
+      setFormError("Este horário já está ocupado nesta demonstração.");
+      return;
+    }
+
+    const parsed = appointmentRequestInputSchema.safeParse({
+      tenantId: clinic.tenantId,
+      treatmentId: selectedTreatment.id,
+      staffId: selectedDentistId,
+      dateIso: selectedDay.iso,
+      slotTime: selectedSlot,
+      patientName,
+      patientPhone,
+      administrativeNotes: patientNotes,
+      consentAccepted: true
+    });
+
+    if (!parsed.success) {
+      setFormError(parsed.error.issues[0]?.message ?? "Verifique os dados informados.");
+      return;
+    }
+
+    const dentistLabel = selectedDentist
+      ? `${selectedDentist.displayName} (${selectedDentist.specialty})`
+      : "Qualquer Especialista Disponível";
+
+    try {
+      const response = await fetch("/api/appointments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...parsed.data,
+          treatmentName: selectedTreatment.displayName,
+          dentistName: dentistLabel,
+          dateLabel: `${selectedDay.label} (${selectedDay.shortDate})`,
+          demoPriceBrl: selectedTreatment.demoPriceBrl
+        })
+      });
+
+      if (response.ok) {
+        const payload = (await response.json()) as { data: AppointmentRequest };
+        setAppointments((prev) => [payload.data, ...prev]);
+        setLastRequested(payload.data);
+        return;
+      }
+    } catch {
+      // Fallback local para modo demonstração offline
+    }
+
+    const newReq: AppointmentRequest = {
       id: `req-${Date.now()}`,
       tenantId: clinic.tenantId,
-      patientContactId: `demo-contact-${Date.now()}`,
-      patientName: validation.data.patientName,
-      patientPhone: validation.data.patientPhone,
       treatmentId: selectedTreatment.id,
       treatmentName: selectedTreatment.displayName,
-      professionalId: selectedDentist?.id,
-      professionalName: selectedDentist?.displayName ?? "Primeiro horário livre",
+      staffId: selectedDentistId,
+      dentistName: dentistLabel,
       dateIso: selectedDay.iso,
       dateLabel: `${selectedDay.label} (${selectedDay.shortDate})`,
       slotTime: selectedSlot,
-      estimatedDurationMinutes: selectedTreatment.estimatedDurationMinutes,
       demoPriceBrl: selectedTreatment.demoPriceBrl,
-      notes: validation.data.notes,
+      patientName: parsed.data.patientName,
+      patientPhone: parsed.data.patientPhone,
+      administrativeNotes: parsed.data.administrativeNotes || undefined,
       status: "REQUESTED",
-      source: "web_demo",
-      createdAt: new Date().toISOString()
+      createdAtIso: new Date().toISOString()
     };
 
-    setAppointments((prev) => [created, ...prev]);
-    setLastRequested(created);
+    setAppointments((prev) => [newReq, ...prev]);
+    setLastRequested(newReq);
   }
 
   function handleAddProcedure() {
     const parsed = newTreatmentInputSchema.safeParse({
       displayName: newProcName,
       demoPriceBrl: Number(newProcPrice),
-      estimatedDurationMinutes: Number(newProcDur) || 45,
-      category: "Estetica"
+      estimatedDurationMinutes: Number(newProcDur) || 45
     });
+
     if (!parsed.success) return;
 
-    const created: Treatment = {
-      id: `tr-${Date.now()}`,
+    const custom: Treatment = {
+      id: `custom-${Date.now()}`,
       tenantId: clinic.tenantId,
-      slug: `custom-${Date.now()}`,
-      category: parsed.data.category,
-      categoryLabel: "Personalizado",
+      slug: `personalizado-${Date.now()}`,
+      category: "Estetica",
+      categoryLabel: "Procedimento da Sua Clínica",
       displayName: parsed.data.displayName,
-      overview: "Procedimento personalizado adicionado para demonstração da clínica.",
-      clinicDifferential: "Configurado sob medida para a apresentação da sua odontologia.",
       estimatedDurationMinutes: parsed.data.estimatedDurationMinutes,
       demoPriceBrl: parsed.data.demoPriceBrl,
-      active: true
+      overview:
+        "Procedimento personalizado adicionado no painel de demonstração da sua clínica.",
+      clinicDifferential: `Protocolo personalizado configurado pela equipe da ${clinic.name}.`,
+      indications: ["Avaliação personalizada em consultório"],
+      contraindicationsHighLevel: ["Avaliadas individualmente pelo cirurgião-dentista"],
+      stepByStepProcess: [
+        {
+          stepNumber: 1,
+          title: "Avaliação clínica inicial",
+          description: "Exame detalhado e alinhamento de expectativas."
+        }
+      ],
+      preVisitPreparation: ["Trazer exames odontológicos anteriores, se houver"],
+      postCareGuidance: ["Seguir as recomendações entregues pelo especialista"],
+      expectedDurationLabel: `Sessão de aproximadamente ${parsed.data.estimatedDurationMinutes} minutos`,
+      recoveryTimeline: "Conforme orientação individualizada em consulta",
+      faqIds: []
     };
 
-    setTreatments((prev) => [created, ...prev]);
-    setSelectedTreatmentId(created.id);
+    setTreatments((prev) => [custom, ...prev]);
+    setSelectedTreatmentId(custom.id);
     setNewProcName("");
     setNewProcPrice("");
   }
 
-  function updateStatus(id: string, nextStatus: AppointmentStatus) {
+  async function updateAppointmentStatus(id: string, nextStatus: AppointmentStatus) {
     setAppointments((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, status: nextStatus } : item))
+      prev.map((a) => (a.id === id ? { ...a, status: nextStatus } : a))
     );
+    try {
+      await fetch(`/api/appointments/${id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus, actorRole: "RECEPTIONIST" })
+      });
+    } catch {
+      // Mantém atualização otimista em sessão demo
+    }
   }
 
   const brandColor = clinic.branding.primaryColor;
 
   return (
     <div
-      style={{ ["--brand" as string]: brandColor }}
-      className="min-h-screen bg-[#F6F9F7] text-[#112A26]"
+      style={{ "--brand": brandColor } as React.CSSProperties}
+      className="min-h-screen flex flex-col bg-[#F6F9F7] text-[#112A26]"
     >
       {/* BARRA DE AUTONOMIA DO DENTISTA */}
-      <div className="bg-[#0E2925] text-[#F4F8F6] py-2.5 border-b border-white/10">
-        <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-[#0B221E] text-[#F1F8F5] py-2.5 px-4 border-b border-white/10 text-xs sm:text-sm">
+        <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3">
           <label
-            htmlFor="quick-clinic-name"
-            className="text-xs sm:text-sm text-[#D7E6E0] inline-flex items-center gap-2.5"
+            htmlFor="quick-clinic-input"
+            className="inline-flex items-center gap-2.5 text-slate-200"
           >
             <svg
-              width="28"
-              height="20"
+              width="30"
+              height="22"
               viewBox="-10 0 215 160"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
               aria-hidden="true"
+              className="shrink-0"
             >
               <defs>
                 <linearGradient id="joTopGrad" x1="0%" y1="100%" x2="100%" y2="0%">
@@ -327,28 +392,30 @@ export function OdontoDemoClient({
               />
             </svg>
             <span>
-              Coloque o nome da <strong>Sua Odontologia</strong> e teste como se fosse o seu site:
+              Coloque o nome da <strong className="text-amber-300">Sua Odontologia</strong> e
+              veja este site com a sua marca:
             </span>
           </label>
-
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <input
-              id="quick-clinic-name"
+              id="quick-clinic-input"
               type="text"
               value={clinic.name === initialClinic.name ? "" : clinic.name}
-              onChange={(e) =>
+              placeholder="Ex: Odontologia Almeida"
+              aria-label="Nome da sua clínica"
+              onChange={(e) => {
+                const value = e.target.value.trim();
                 setClinic((prev) => ({
                   ...prev,
-                  name: e.target.value.trim() || initialClinic.name
-                }))
-              }
-              placeholder="Ex: Odontologia Almeida"
-              className="bg-white/10 border border-white/20 rounded-full px-3.5 py-1.5 text-sm text-white placeholder:text-slate-300 min-w-[210px]"
+                  name: value || initialClinic.name
+                }));
+              }}
+              className="bg-white/10 border border-white/20 rounded-full px-3.5 py-1 text-white placeholder:text-slate-400 text-xs sm:text-sm focus:outline-none focus:border-emerald-300"
             />
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
-              className="bg-[#DCECE5] text-[#0E2925] hover:brightness-95 text-xs font-bold px-4 py-2 rounded-full cursor-pointer"
+              className="bg-emerald-400/20 border border-emerald-300/40 text-emerald-200 hover:bg-emerald-400/30 px-3.5 py-1 rounded-full font-semibold text-xs cursor-pointer transition"
             >
               Personalizar Clínica
             </button>
@@ -357,53 +424,75 @@ export function OdontoDemoClient({
       </div>
 
       {/* CABEÇALHO ESTILO SMILEORA / BRIGHTBITE */}
-      <header className="sticky top-0 z-30 bg-[#F6F9F7]/95 backdrop-blur border-b border-[#DCE8E2]">
-        <div className="max-w-6xl mx-auto px-4 min-h-[76px] flex flex-wrap items-center justify-between gap-4">
-          <a href="#topo" className="flex items-center gap-3">
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-[#DCE8E2]">
+        <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
             <div
-              className="w-11 h-11 rounded-2xl text-white flex items-center justify-center shadow-sm"
+              className="w-11 h-11 rounded-2xl text-white font-serif font-bold flex items-center justify-center shadow-sm"
               style={{ backgroundColor: brandColor }}
+              aria-hidden="true"
             >
               <svg
                 className="w-6 h-6"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               >
                 <path d="M7 3C4.8 3 3 4.8 3 7.2c0 2.5 1.3 4.6 2 6.8.7 2.2 1.2 6 2.8 6 1.3 0 1.8-2.8 2.7-4.5.4-.8.9-1.2 1.5-1.2s1.1.4 1.5 1.2c.9 1.7 1.4 4.5 2.7 4.5 1.6 0 2.1-3.8 2.8-6 .7-2.2 2-4.3 2-6.8C21 4.8 19.2 3 17 3c-1.8 0-3.2 1-5 1S8.8 3 7 3Z" />
               </svg>
             </div>
             <div>
-              <div className="font-serif font-bold text-xl leading-tight text-[#0E2925]">
+              <div className="font-serif font-bold text-lg leading-tight text-[#0E2925]">
                 {clinic.name}
               </div>
-              <div className="text-[11px] font-medium text-[#4A6862]">{clinic.subtitle}</div>
+              <div className="text-xs text-[#4A6862]">
+                {clinic.cityLabel} · {clinic.croLabel}
+              </div>
             </div>
-          </a>
+          </div>
 
-          <nav className="hidden lg:flex items-center gap-1 bg-white/80 border border-[#DCE8E2] rounded-full px-2 py-1 text-xs font-semibold text-[#3C5A54]">
+          <nav
+            aria-label="Navegação principal"
+            className="hidden lg:flex items-center gap-1 bg-[#EDF4F0] p-1 rounded-full border border-[#D7E6DF] text-xs font-semibold text-[#264640]"
+          >
             <a
-              href="#topo"
-              className="px-3.5 py-1.5 rounded-full text-white"
+              href="#sobre"
+              className="px-3.5 py-1.5 rounded-full text-white shadow-xs transition"
               style={{ backgroundColor: brandColor }}
             >
-              Início
-            </a>
-            <a href="#tratamentos" className="px-3.5 py-1.5 rounded-full hover:text-[#0E2925]">
-              Tratamentos
-            </a>
-            <a href="#sobre" className="px-3.5 py-1.5 rounded-full hover:text-[#0E2925]">
               A Clínica
             </a>
-            <a href="#estrutura" className="px-3.5 py-1.5 rounded-full hover:text-[#0E2925]">
-              Tecnologia
+            <a
+              href="#tratamentos"
+              className="px-3.5 py-1.5 rounded-full hover:text-[#0E2925] transition"
+            >
+              Tratamentos
             </a>
-            <a href="#depoimentos" className="px-3.5 py-1.5 rounded-full hover:text-[#0E2925]">
-              Pacientes
+            <a
+              href="#jornada"
+              className="px-3.5 py-1.5 rounded-full hover:text-[#0E2925] transition"
+            >
+              Como Funciona
             </a>
-            <a href="#duvidas" className="px-3.5 py-1.5 rounded-full hover:text-[#0E2925]">
+            <a
+              href="#equipe"
+              className="px-3.5 py-1.5 rounded-full hover:text-[#0E2925] transition"
+            >
+              Corpo Clínico
+            </a>
+            <a
+              href="#depoimentos"
+              className="px-3.5 py-1.5 rounded-full hover:text-[#0E2925] transition"
+            >
+              Depoimentos
+            </a>
+            <a
+              href="#duvidas"
+              className="px-3.5 py-1.5 rounded-full hover:text-[#0E2925] transition"
+            >
               Dúvidas
             </a>
           </nav>
@@ -414,13 +503,13 @@ export function OdontoDemoClient({
               onClick={() => setMobileMenuOpen((v) => !v)}
               aria-expanded={mobileMenuOpen}
               aria-label="Abrir menu de navegação"
-              className="lg:hidden px-3 py-1.5 rounded-full border border-[#DCE8E2] bg-white text-xs font-semibold"
+              className="lg:hidden px-3 py-1.5 rounded-full border border-[#CFE2D9] text-xs font-semibold text-[#112A26]"
             >
               Menu
             </button>
 
             <div
-              className="inline-flex bg-[#E4F0EA] p-1 rounded-full border border-[#CFE2D9]"
+              className="inline-flex bg-[#EDF4F0] p-1 rounded-full border border-[#D7E6DF]"
               role="tablist"
             >
               <button
@@ -428,10 +517,10 @@ export function OdontoDemoClient({
                 role="tab"
                 aria-selected={activeView === "patient"}
                 onClick={() => setActiveView("patient")}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-bold cursor-pointer transition ${
+                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition ${
                   activeView === "patient"
-                    ? "bg-white text-[#0E2925] shadow-sm"
-                    : "text-[#3C5A54]"
+                    ? "bg-white text-[#0E2925] shadow-xs"
+                    : "text-[#4A6862]"
                 }`}
               >
                 Visão do Paciente
@@ -441,10 +530,10 @@ export function OdontoDemoClient({
                 role="tab"
                 aria-selected={activeView === "clinic"}
                 onClick={() => setActiveView("clinic")}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition ${
+                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition ${
                   activeView === "clinic"
-                    ? "bg-white text-[#0E2925] shadow-sm"
-                    : "text-[#3C5A54]"
+                    ? "bg-white text-[#0E2925] shadow-xs"
+                    : "text-[#4A6862]"
                 }`}
               >
                 Painel da Sua Clínica
@@ -456,22 +545,31 @@ export function OdontoDemoClient({
                 </span>
               </button>
             </div>
+
+            <a
+              href="#agendar"
+              className="hidden sm:inline-flex items-center gap-1.5 text-white text-xs font-bold px-4 py-2.5 rounded-full shadow-sm hover:opacity-95 transition"
+              style={{ backgroundColor: brandColor }}
+            >
+              <span>Agendar Consulta</span>
+              <span aria-hidden="true">→</span>
+            </a>
           </div>
         </div>
 
         {mobileMenuOpen && (
           <nav
             aria-label="Menu mobile"
-            className="lg:hidden border-t border-[#DCE8E2] bg-white px-4 py-3 flex flex-wrap gap-4 text-xs font-semibold text-[#3C5A54]"
+            className="lg:hidden border-t border-[#DCE8E2] bg-white px-4 py-3 flex flex-wrap gap-4 text-xs font-semibold text-[#264640]"
           >
-            <a href="#tratamentos" onClick={() => setMobileMenuOpen(false)}>
-              Tratamentos
-            </a>
             <a href="#sobre" onClick={() => setMobileMenuOpen(false)}>
               A Clínica
             </a>
-            <a href="#estrutura" onClick={() => setMobileMenuOpen(false)}>
-              Tecnologia
+            <a href="#tratamentos" onClick={() => setMobileMenuOpen(false)}>
+              Tratamentos
+            </a>
+            <a href="#jornada" onClick={() => setMobileMenuOpen(false)}>
+              Como Funciona
             </a>
             <a href="#equipe" onClick={() => setMobileMenuOpen(false)}>
               Corpo Clínico
@@ -487,48 +585,54 @@ export function OdontoDemoClient({
       </header>
 
       {/* AVISO TRANSPARENTE DE MODO DEMO */}
-      <div className="bg-[#E3EFEA] border-b border-[#CFE2D9] py-1.5 px-4 text-center text-xs text-[#112A26]">
+      <div className="bg-[#E3EFEA] border-b border-[#CFE2D9] py-1.5 px-4 text-center text-xs text-[#1D4039]">
         {supabaseConfigured
           ? "Conectado ao ambiente Supabase configurado."
-          : "Modo Demonstração ativo: personalize o nome da clínica acima e teste agendamentos localmente."}
+          : "Modo Demonstração ativo: teste agendamentos, personalize o nome/cor da clínica e veja as falas e argumentos pensados para converter pacientes."}
       </div>
 
       {activeView === "patient" ? (
-        <main id="topo">
-          {/* HERO ORGÂNICO COM FOTOS GERADAS (SMILEORA + BRIGHTBITE) */}
-          <section className="relative overflow-hidden pt-10 pb-20">
-            <div
-              className="pointer-events-none absolute -top-24 right-0 w-[520px] h-[520px] rounded-full opacity-45 blur-3xl"
-              style={{ backgroundColor: "#CBE3D8" }}
-              aria-hidden="true"
-            />
+        <main>
+          {/* HERO EQUILIBRADO: TEXTO PERSUASIVO + FALAS REAIS + RETRATO COMPACTO */}
+          <section className="relative overflow-hidden bg-gradient-to-b from-[#E5F2EC] via-[#EEF6F2] to-[#F6F9F7] pt-10 pb-16 border-b border-[#DCE8E2]">
             <div className="max-w-6xl mx-auto px-4 grid lg:grid-cols-12 gap-10 items-center">
-              {/* COLUNA ESQUERDA HERO */}
-              <div className="lg:col-span-6 space-y-6">
-                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#E1EFE9] border border-[#C5DDD3] text-xs font-bold text-[#0F4C5C]">
+              {/* COLUNA ESQUERDA (7 COLUNAS): COPY PRINCIPAL, FALAS E PROVA SOCIAL */}
+              <div className="lg:col-span-7 space-y-5">
+                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#DCECE5] border border-[#BFE0D2] text-xs font-bold text-[#0F4C5C] uppercase tracking-wider">
                   <span
                     className="w-2 h-2 rounded-full"
                     style={{ backgroundColor: brandColor }}
                   />
-                  Odontologia Moderna &amp; Acolhedora
+                  Atendimento Sem Pressa · Tecnologia 3D · CRO Ativo
                 </div>
 
-                <h1 className="font-serif text-4xl sm:text-5xl lg:text-[54px] font-bold leading-[1.08] tracking-tight text-[#0E2925]">
-                  Sorriso Saudável,{" "}
-                  <span
-                    className="italic font-normal block mt-1"
-                    style={{ color: brandColor }}
-                  >
-                    Você Mais Feliz.
+                <h1 className="font-serif text-4xl sm:text-5xl font-bold leading-[1.12] tracking-tight text-[#0E2925]">
+                  Cuidado odontológico gentil e preciso na{" "}
+                  <span className="italic font-normal" style={{ color: brandColor }}>
+                    {clinic.name}
                   </span>
+                  .
                 </h1>
 
-                <p className="text-[#45635D] text-base sm:text-lg leading-relaxed max-w-xl">
-                  Cuidado odontológico de excelência com toque humano na{" "}
-                  <strong className="text-[#0E2925]">{clinic.name}</strong>. Tecnologia 3D sem
-                  moldagens desconfortáveis, especialistas com CRO ativo e agendamento online em
-                  segundos.
+                <p className="text-[#385751] text-base sm:text-lg leading-relaxed max-w-2xl">
+                  Esqueça a espera no telefone e o receio de ir ao dentista. Aqui você conversa sem
+                  pressa com o especialista, enxerga cada detalhe do seu diagnóstico na tela 3D
+                  antes de decidir qualquer procedimento e agenda sua consulta ou{" "}
+                  <strong className="text-[#0E2925]">encaixe de urgência no mesmo dia</strong> em
+                  menos de um minuto.
                 </p>
+
+                {/* DESTAQUE DE FALA / COMPROMISSO CLÍNICO NO HERO */}
+                <div className="bg-white/85 border-l-4 rounded-r-2xl p-4 shadow-xs text-sm text-[#1E3F39]" style={{ borderLeftColor: brandColor }}>
+                  <p className="italic">
+                    “Nosso compromisso é simples: nenhum paciente senta na cadeira sem saber
+                    exatamente o que será feito, por que será feito e o valor fechado de cada
+                    etapa.”
+                  </p>
+                  <span className="block text-xs font-bold text-[#4A6862] mt-1">
+                    — Diretriz de Atendimento Humanizado · {clinic.name}
+                  </span>
+                </div>
 
                 <div className="flex flex-wrap items-center gap-3.5 pt-1">
                   <a
@@ -540,94 +644,87 @@ export function OdontoDemoClient({
                     <span aria-hidden="true">→</span>
                   </a>
                   <a
-                    href="#estrutura"
-                    className="inline-flex items-center gap-2.5 bg-white border border-[#CFE2D9] text-[#0E2925] font-bold text-sm px-5 py-3.5 rounded-full shadow-sm hover:bg-[#EDF5F1] transition"
+                    href="#agendar"
+                    onClick={handleSelectUrgency}
+                    className="inline-flex items-center gap-2 bg-white border border-[#CFE2D9] text-[#0E2925] font-bold text-sm px-5 py-3.5 rounded-full shadow-xs hover:bg-[#EDF5F1] transition"
                   >
-                    <span
-                      className="w-6 h-6 rounded-full text-white flex items-center justify-center text-[10px]"
-                      style={{ backgroundColor: brandColor }}
-                    >
-                      ▶
-                    </span>
-                    <span>Conhecer a Clínica</span>
+                    <span className="w-2 h-2 rounded-full bg-amber-500" />
+                    <span>Preciso de Urgência Hoje</span>
                   </a>
                 </div>
 
-                {/* PROVA SOCIAL COM AVATARES */}
-                <div className="flex items-center gap-4 pt-3">
-                  <div className="flex -space-x-2.5">
-                    {["MS", "RA", "JM", "CF"].map((initials, idx) => (
-                      <div
-                        key={initials}
-                        className="w-10 h-10 rounded-full border-2 border-white text-xs font-bold flex items-center justify-center text-white shadow-sm"
-                        style={{
-                          backgroundColor: idx % 2 === 0 ? brandColor : "#2A6F62"
-                        }}
-                      >
-                        {initials}
-                      </div>
-                    ))}
-                  </div>
+                {/* FAIXA DE PROVA RÁPIDA (DO ORIGINAL) */}
+                <div className="grid grid-cols-3 gap-3 pt-3 border-t border-[#CFE2D9]/80 max-w-xl">
                   <div>
-                    <div className="text-sm font-bold text-[#0E2925]">
-                      +4.000 Pacientes Atendidos
-                    </div>
-                    <div className="text-xs text-[#4A6862]">
-                      ★★★★★ 4.9 · Confiam no cuidado da {clinic.name}
-                    </div>
+                    <strong className="font-serif text-lg sm:text-xl font-bold text-[#0E2925] block">
+                      4.9 ★
+                    </strong>
+                    <span className="text-xs text-[#4A6862]">
+                      340+ avaliações verificadas
+                    </span>
+                  </div>
+                  <div className="border-l border-[#CFE2D9] pl-3">
+                    <strong className="font-serif text-lg sm:text-xl font-bold text-[#0E2925] block">
+                      Scanner 3D
+                    </strong>
+                    <span className="text-xs text-[#4A6862]">
+                      Sem moldagens desconfortáveis
+                    </span>
+                  </div>
+                  <div className="border-l border-[#CFE2D9] pl-3">
+                    <strong className="font-serif text-lg sm:text-xl font-bold text-[#0E2925] block">
+                      Até 12x
+                    </strong>
+                    <span className="text-xs text-[#4A6862]">
+                      Particular e nota p/ reembolso
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* COLUNA DIREITA HERO: COMPOSIÇÃO FOTOGRÁFICA + 3D TOOTH CARD */}
-              <div className="lg:col-span-6 relative">
-                <div className="relative mx-auto max-w-lg">
-                  {/* MOLDURA ORGÂNICA PRINCIPAL COM FOTO DA PACIENTE */}
-                  <div className="relative rounded-[36px] overflow-hidden border-4 border-white shadow-2xl bg-[#DCECE5] aspect-[4/3]">
+              {/* COLUNA DIREITA (5 COLUNAS): CARD DE FALA VERIFICADA DA PACIENTE + FOTO COMPACTA + HORÁRIOS */}
+              <div className="lg:col-span-5 space-y-4">
+                {/* CARD DE DEPOIMENTO EM DESTAQUE + MINI FOTO */}
+                <div className="bg-white border border-[#DCE8E2] rounded-3xl p-6 shadow-lg space-y-4">
+                  <div className="flex items-center gap-3.5">
                     <img
                       src="/images/hero-patient.jpg"
-                      alt={`Paciente sorrindo na ${clinic.name}`}
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0E2925]/45 via-transparent to-transparent" />
-                    <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between gap-2 text-white">
-                      <span className="text-xs font-semibold bg-black/35 backdrop-blur-md px-3 py-1 rounded-full">
-                        {clinic.hoursLabel}
-                      </span>
-                      <span className="text-[11px] bg-white/20 backdrop-blur-md px-2.5 py-1 rounded-full">
-                        Imagem Ilustrativa Demo
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* SELO FLUTUANTE ESQUERDO (BRIGHTBITE 4,000+ SMILES) */}
-                  <div className="hidden sm:flex items-center gap-3 absolute -bottom-6 -left-6 bg-white border border-[#DCE8E2] rounded-2xl p-3.5 shadow-xl">
-                    <img
-                      src="/images/hero-3d-tooth.jpg"
-                      alt="Ícone 3D Odontologia"
-                      className="w-14 h-14 rounded-xl object-cover shrink-0"
+                      alt={`Paciente atendida na ${clinic.name}`}
+                      className="w-16 h-16 rounded-2xl object-cover border-2 border-[#DCECE5] shrink-0"
                     />
                     <div>
-                      <div className="font-serif font-bold text-lg leading-none text-[#0E2925]">
-                        Scanner 3D
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#E3EFEA] text-[#0F4C5C]">
+                          Relato de Paciente
+                        </span>
+                        <span className="text-amber-500 text-xs tracking-widest">★★★★★</span>
                       </div>
-                      <div className="text-xs text-[#4A6862] mt-0.5">
-                        Diagnóstico digital preciso
-                      </div>
+                      <strong className="block text-sm text-[#0E2925] mt-1">
+                        Mariana Siqueira
+                      </strong>
+                      <span className="text-xs text-[#4A6862]">
+                        Paciente de Clareamento &amp; Profilaxia
+                      </span>
                     </div>
                   </div>
 
-                  {/* SELO FLUTUANTE SUPERIOR DIREITO */}
-                  <div className="hidden sm:flex items-center gap-2.5 absolute -top-5 -right-4 bg-white border border-[#DCE8E2] rounded-full px-4 py-2 shadow-lg">
-                    <span
-                      className="w-7 h-7 rounded-full text-white flex items-center justify-center text-xs font-bold"
-                      style={{ backgroundColor: brandColor }}
-                    >
-                      ✓
-                    </span>
-                    <div className="text-xs">
-                      <strong className="block text-[#0E2925]">Sorriso com Confiança</strong>
-                      <span className="text-[#4A6862]">Atendimento sem pressa</span>
+                  <blockquote className="text-sm sm:text-[15px] text-[#112A26] leading-relaxed italic bg-[#F6F9F7] border border-[#E2EDE8] rounded-2xl p-4">
+                    “Sempre tive receio de dentista, mas aqui fui atendida no horário exato, sem
+                    dor e com explicação clara de cada etapa do tratamento na tela.”
+                  </blockquote>
+
+                  <div className="grid sm:grid-cols-2 gap-3 pt-1 text-xs">
+                    <div className="bg-[#F6F9F7] border border-[#DCE8E2] rounded-2xl p-3">
+                      <span className="block text-[11px] font-semibold text-[#4A6862] uppercase">
+                        Horário de Atendimento
+                      </span>
+                      <strong className="text-[#0E2925] block mt-0.5">{clinic.hoursLabel}</strong>
+                    </div>
+                    <div className="bg-[#F6F9F7] border border-[#DCE8E2] rounded-2xl p-3">
+                      <span className="block text-[11px] font-semibold text-[#4A6862] uppercase">
+                        Endereço &amp; Acesso
+                      </span>
+                      <strong className="text-[#0E2925] block mt-0.5">{clinic.address}</strong>
                     </div>
                   </div>
                 </div>
@@ -635,75 +732,163 @@ export function OdontoDemoClient({
             </div>
           </section>
 
-          {/* BARRA FLUTUANTE DE 4 INDICADORES (BRIGHTBITE & PURESMILE) */}
-          <section className="relative z-10 -mt-10 pb-8">
+          {/* POR QUE A SUA ODONTOLOGIA — MAIS TEXTO, ARGUMENTOS E IMAGEM COMPACTA (4 COLUNAS) */}
+          <section id="sobre" className="py-16 bg-white border-b border-[#DCE8E2]">
+            <div className="max-w-6xl mx-auto px-4 grid lg:grid-cols-12 gap-10 items-start">
+              {/* TEXTO E ARGUMENTOS (8 COLUNAS) */}
+              <div className="lg:col-span-8 space-y-5">
+                <span className="inline-block px-3.5 py-1 rounded-full bg-[#E3EFEA] text-xs font-bold uppercase tracking-wider text-[#0F4C5C]">
+                  Referência em Odontologia Humanizada
+                </span>
+                <h2 className="font-serif text-3xl sm:text-4xl font-bold text-[#0E2925] leading-tight">
+                  Uma das clínicas mais completas da região, com especialistas que realmente
+                  escutam você.
+                </h2>
+                <p className="text-[#3C5A54] text-base leading-relaxed">
+                  Na <strong className="text-[#0E2925]">{clinic.name}</strong>, você não é atendido
+                  às pressas em consultas de 10 minutos. Reunimos cirurgiões-dentistas especialistas
+                  com formação de ponta, diagnóstico por câmera intraoral e um ambiente acolhedor
+                  pensado para eliminar a ansiedade de quem adia o tratamento por medo de sentir
+                  dor.
+                </p>
+
+                <div className="grid sm:grid-cols-3 gap-4 pt-2">
+                  <div className="bg-[#F6F9F7] border border-[#DCE8E2] rounded-2xl p-4 space-y-1.5">
+                    <strong className="block text-sm text-[#0E2925]">
+                      1. Corpo Clínico de Destaque
+                    </strong>
+                    <p className="text-xs text-[#4A6862] leading-relaxed">
+                      Especialistas dedicados por área (Estética, Implantes, Endodontia e
+                      Ortodontia) — você passa com quem domina o seu caso.
+                    </p>
+                  </div>
+                  <div className="bg-[#F6F9F7] border border-[#DCE8E2] rounded-2xl p-4 space-y-1.5">
+                    <strong className="block text-sm text-[#0E2925]">
+                      2. Explicação Clara na Tela
+                    </strong>
+                    <p className="text-xs text-[#4A6862] leading-relaxed">
+                      Fotografamos e escaneamos seu sorriso em alta definição para mostrar na tela
+                      o que realmente precisa ser tratado, sem termos técnicos confusos.
+                    </p>
+                  </div>
+                  <div className="bg-[#F6F9F7] border border-[#DCE8E2] rounded-2xl p-4 space-y-1.5">
+                    <strong className="block text-sm text-[#0E2925]">
+                      3. Zero Surpresas no Orçamento
+                    </strong>
+                    <p className="text-xs text-[#4A6862] leading-relaxed">
+                      Você recebe o plano completo por escrito, com valores transparentes, etapas
+                      bem definidas e condições em até 12x antes de iniciar.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* COLUNA LATERAL COMPACTA (4 COLUNAS): IMAGEM MENOR + LEGENDA */}
+              <div className="lg:col-span-4 bg-[#F6F9F7] border border-[#DCE8E2] rounded-3xl p-4 space-y-3">
+                <div className="rounded-2xl overflow-hidden aspect-[4/3] border border-[#DCE8E2]">
+                  <img
+                    src="/images/about-dentist-care.jpg"
+                    alt={`Atendimento cuidadoso na ${clinic.name}`}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="px-1">
+                  <strong className="block text-sm text-[#0E2925]">
+                    Tempo Exclusivo para Cada Paciente
+                  </strong>
+                  <p className="text-xs text-[#4A6862] mt-1 leading-relaxed">
+                    “Reservamos janelas amplas na agenda para que você tire todas as dúvidas com
+                    calma e faça o procedimento no seu ritmo.”
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* COMO FUNCIONA SUA PRIMEIRA CONSULTA (JORNADA EM TEXTO CLARO) */}
+          <section id="jornada" className="py-14 bg-[#EDF5F1] border-b border-[#DCE8E2]">
             <div className="max-w-6xl mx-auto px-4">
-              <div className="bg-white border border-[#DCE8E2] rounded-3xl p-6 sm:p-8 shadow-lg grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="max-w-2xl mb-8">
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-[#3C6E63]">
+                  PASSO A PASSO SEM ANSIEDADE
+                </span>
+                <h2 className="font-serif text-3xl font-bold text-[#0E2925] mt-1">
+                  O Que Acontece na Sua Primeira Visita
+                </h2>
+                <p className="text-sm text-[#4A6862] mt-1">
+                  Sabemos que a previsibilidade traz tranquilidade. Veja exatamente como conduzimos
+                  o seu atendimento na <strong>{clinic.name}</strong>:
+                </p>
+              </div>
+
+              <div className="grid md:grid-cols-3 gap-5">
                 {[
                   {
-                    num: "3.500+",
-                    title: "Pacientes Satisfeitos",
-                    desc: "Acolhimento gentil pensado para quem tem receio de dentista."
+                    step: "Etapa 01",
+                    title: "Conversa Inicial & Escuta Ativa",
+                    quote: "“Primeiro ouvimos o que incomoda você e seu histórico, fora da cadeira odontológica.”",
+                    desc: "Antes de qualquer exame clínico, conversamos sobre suas prioridades, eventuais receios, sensibilidade ou urgência para adaptar todo o atendimento ao seu perfil."
                   },
                   {
-                    num: "15+ Anos",
-                    title: "Experiência Clínica",
-                    desc: "Especialistas com CRO ativo em cada área da odontologia."
+                    step: "Etapa 02",
+                    title: "Check-up Digital 3D na Tela",
+                    quote: "“Você vê exatamente o que o dentista está vendo, dente por dente.”",
+                    desc: "Realizamos o exame com câmera intraoral e escaneamento digital sem massinhas. Mostramos as imagens na tela para que você compreenda o diagnóstico com total segurança."
                   },
                   {
-                    num: "99%",
-                    title: "Aprovação no Atendimento",
-                    desc: "Pontualidade, clareza no orçamento e acompanhamento próximo."
-                  },
-                  {
-                    num: "100% 3D",
-                    title: "Planejamento Digital",
-                    desc: "Escaneamento intraoral rápido sem massinhas de moldagem."
+                    step: "Etapa 03",
+                    title: "Plano Fechado & Decisão Sem Pressão",
+                    quote: "“Apresentamos as opções, prazos e valores claros para você decidir no seu tempo.”",
+                    desc: "Entregamos seu cronograma de tratamento detalhado, opções de parcelamento e documentação para reembolso de convênio, iniciando apenas quando você estiver 100% confortável."
                   }
-                ].map((stat) => (
-                  <div
-                    key={stat.title}
-                    className="flex flex-col items-start sm:items-center sm:text-center p-2"
+                ].map((item) => (
+                  <article
+                    key={item.step}
+                    className="bg-white border border-[#DCE8E2] rounded-3xl p-6 space-y-3 shadow-xs"
                   >
-                    <div
-                      className="w-11 h-11 rounded-2xl flex items-center justify-center mb-3 text-sm font-bold"
-                      style={{
-                        backgroundColor: "#E3EFEA",
-                        color: brandColor
-                      }}
+                    <span
+                      className="inline-block text-xs font-bold px-3 py-1 rounded-full text-white"
+                      style={{ backgroundColor: brandColor }}
                     >
-                      ★
-                    </div>
-                    <strong className="font-serif text-2xl sm:text-3xl font-bold text-[#0E2925]">
-                      {stat.num}
-                    </strong>
-                    <span className="font-bold text-sm text-[#112A26] mt-1">{stat.title}</span>
-                    <p className="text-xs text-[#526E68] mt-1 leading-relaxed">{stat.desc}</p>
-                  </div>
+                      {item.step}
+                    </span>
+                    <h3 className="font-serif text-xl font-bold text-[#0E2925]">{item.title}</h3>
+                    <p className="text-xs font-semibold italic text-[#0F4C5C] bg-[#F6F9F7] border border-[#DCE8E2] rounded-xl p-3">
+                      {item.quote}
+                    </p>
+                    <p className="text-sm text-[#4A6862] leading-relaxed">{item.desc}</p>
+                  </article>
                 ))}
               </div>
             </div>
           </section>
 
-          {/* NOSSOS SERVIÇOS — COMPREHENSIVE DENTAL CARE (SMILEORA CARDS) */}
+          {/* TRATAMENTOS & ESPECIALIDADES COM EXPLICAÇÕES DETALHADAS */}
           <section id="tratamentos" className="py-16">
             <div className="max-w-6xl mx-auto px-4">
-              <div className="text-center max-w-2xl mx-auto mb-8">
-                <span className="text-xs font-bold uppercase tracking-[0.2em] text-[#3C6E63]">
-                  — NOSSAS ESPECIALIDADES —
-                </span>
-                <h2 className="font-serif text-3xl sm:text-4xl font-bold text-[#0E2925] mt-2">
-                  Cuidado Odontológico Completo
-                </h2>
-                <p className="text-sm sm:text-base text-[#4A6862] mt-2">
-                  Da prevenção à reabilitação estética do sorriso: escolha o procedimento na{" "}
-                  <strong>{clinic.name}</strong> para ver detalhes ou agendar sua avaliação.
-                </p>
-              </div>
+              <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
+                <div className="max-w-xl">
+                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-[#3C6E63]">
+                    ESPECIALIDADES &amp; PROCEDIMENTOS
+                  </span>
+                  <h2 className="font-serif text-3xl sm:text-4xl font-bold text-[#0E2925] mt-1">
+                    Tratamentos da {clinic.name}
+                  </h2>
+                  <p className="text-sm text-[#4A6862] mt-1">
+                    Clique em qualquer tratamento para selecioná-lo no agendamento ou abra o guia
+                    educativo completo com passo a passo e cuidados.
+                  </p>
+                </div>
 
-              {/* FILTROS E BUSCA */}
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-8">
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="search"
+                    value={treatmentSearch}
+                    onChange={(e) => setTreatmentSearch(e.target.value)}
+                    placeholder="Buscar tratamento..."
+                    aria-label="Buscar tratamento"
+                    className="bg-white border border-[#CFE2D9] rounded-full px-4 py-2 text-xs min-w-[200px]"
+                  />
                   {(
                     [
                       ["all", "Todos"],
@@ -719,7 +904,7 @@ export function OdontoDemoClient({
                       onClick={() => setTreatmentCat(cat)}
                       className={`px-4 py-2 rounded-full text-xs font-bold border cursor-pointer transition ${
                         treatmentCat === cat
-                          ? "text-white border-transparent shadow-sm"
+                          ? "text-white border-transparent shadow-xs"
                           : "bg-white text-[#3C5A54] border-[#CFE2D9] hover:bg-[#EAF3EE]"
                       }`}
                       style={
@@ -730,106 +915,90 @@ export function OdontoDemoClient({
                     </button>
                   ))}
                 </div>
-
-                <input
-                  type="search"
-                  value={treatmentSearch}
-                  onChange={(e) => setTreatmentSearch(e.target.value)}
-                  placeholder="Buscar tratamento..."
-                  aria-label="Buscar tratamento"
-                  className="bg-white border border-[#CFE2D9] rounded-full px-4 py-2 text-xs min-w-[220px]"
-                />
               </div>
 
-              {/* GRADE DE TRATAMENTOS ESTILO SMILEORA */}
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              <div className="grid md:grid-cols-2 gap-5">
                 {filteredTreatments.map((t) => {
                   const isSelected = selectedTreatment?.id === t.id;
                   return (
                     <article
                       key={t.id}
                       onClick={() => setSelectedTreatmentId(t.id)}
-                      className={`group rounded-3xl p-6 border-2 transition cursor-pointer flex flex-col justify-between ${
+                      className={`rounded-3xl p-6 border-2 transition cursor-pointer flex flex-col justify-between ${
                         isSelected
                           ? "bg-white shadow-lg"
-                          : "bg-[#ECF3EF]/75 hover:bg-white border-[#DCE8E2] hover:shadow-md"
+                          : "bg-white/90 hover:bg-white border-[#DCE8E2] hover:shadow-md"
                       }`}
                       style={isSelected ? { borderColor: brandColor } : undefined}
                     >
                       <div>
-                        <div className="flex items-center justify-between gap-2 mb-4">
-                          <div
-                            className="w-12 h-12 rounded-2xl flex items-center justify-center bg-white border border-[#DCE8E2] shadow-xs"
-                            style={{ color: brandColor }}
-                          >
-                            <svg
-                              className="w-6 h-6"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="1.8"
-                              aria-hidden="true"
-                            >
-                              <path d="M7 3C4.8 3 3 4.8 3 7.2c0 2.5 1.3 4.6 2 6.8.7 2.2 1.2 6 2.8 6 1.3 0 1.8-2.8 2.7-4.5.4-.8.9-1.2 1.5-1.2s1.1.4 1.5 1.2c.9 1.7 1.4 4.5 2.7 4.5 1.6 0 2.1-3.8 2.8-6 .7-2.2 2-4.3 2-6.8C21 4.8 19.2 3 17 3c-1.8 0-3.2 1-5 1S8.8 3 7 3Z" />
-                            </svg>
-                          </div>
-                          <span className="text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-white text-[#3C6E63] border border-[#DCE8E2]">
+                        <div className="flex items-center justify-between gap-2 mb-3">
+                          <span className="text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-[#E3EFEA] text-[#0F4C5C]">
                             {t.categoryLabel}
+                          </span>
+                          <span className="text-xs text-[#4A6862] font-semibold">
+                            Sessão de ~{t.estimatedDurationMinutes} min
                           </span>
                         </div>
 
                         <h3 className="font-serif text-xl font-bold text-[#0E2925] mb-2">
                           {t.displayName}
                         </h3>
-                        <p className="text-sm text-[#4A6862] leading-relaxed mb-4">
+                        <p className="text-sm text-[#385751] leading-relaxed mb-3">
                           {t.overview}
                         </p>
 
-                        <div className="bg-[#F6F9F7] border border-[#DCE8E2] rounded-2xl p-3 text-xs text-[#112A26] mb-4">
+                        {t.indications.length > 0 && (
+                          <div className="mb-3 text-xs text-[#4A6862]">
+                            <strong className="text-[#0E2925]">Indicado para: </strong>
+                            {t.indications.slice(0, 2).join(" · ")}
+                          </div>
+                        )}
+
+                        <div
+                          className="bg-[#F6F9F7] border-l-4 rounded-r-2xl p-3.5 text-xs text-[#112A26] mb-4"
+                          style={{ borderLeftColor: brandColor }}
+                        >
                           <strong
                             className="block text-[11px] uppercase tracking-wider mb-0.5"
                             style={{ color: brandColor }}
                           >
-                            Por que na {clinic.name}?
+                            Diferencial na {clinic.name}
                           </strong>
                           {t.clinicDifferential}
                         </div>
                       </div>
 
-                      <div className="pt-4 border-t border-[#DCE8E2] flex items-center justify-between gap-2">
+                      <div className="pt-3.5 border-t border-[#DCE8E2] flex items-center justify-between gap-3 flex-wrap">
                         <div>
                           <strong
-                            className="block text-base font-bold"
+                            className="text-base font-bold"
                             style={{ color: brandColor }}
                           >
                             {formatBRL(t.demoPriceBrl)}
                           </strong>
-                          <div className="flex items-center gap-2 text-[11px] text-[#4A6862]">
-                            <span>~{t.estimatedDurationMinutes} min</span>
-                            <span>·</span>
-                            <Link
-                              href={`/tratamentos/${t.slug}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="font-bold underline hover:text-[#0E2925]"
-                            >
-                              Guia educativo
-                            </Link>
-                          </div>
+                          <span className="text-[11px] text-[#4A6862] ml-1.5">
+                            (Referência Demo)
+                          </span>
                         </div>
 
-                        <a
-                          href="#agendar"
-                          onClick={() => setSelectedTreatmentId(t.id)}
-                          aria-label={`Agendar ${t.displayName}`}
-                          className="w-10 h-10 rounded-full flex items-center justify-center border border-[#CFE2D9] bg-white text-[#0E2925] font-bold group-hover:text-white transition"
-                          style={
-                            isSelected
-                              ? { backgroundColor: brandColor, color: "#FFFFFF" }
-                              : undefined
-                          }
-                        >
-                          →
-                        </a>
+                        <div className="flex items-center gap-3 text-xs">
+                          <Link
+                            href={`/tratamentos/${t.slug}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="font-bold underline text-[#0F4C5C] hover:text-[#0E2925]"
+                          >
+                            Ler guia completo →
+                          </Link>
+                          <a
+                            href="#agendar"
+                            onClick={() => setSelectedTreatmentId(t.id)}
+                            className="px-3.5 py-1.5 rounded-full font-bold text-white transition"
+                            style={{ backgroundColor: brandColor }}
+                          >
+                            {isSelected ? "Selecionado ✓" : "Agendar"}
+                          </a>
+                        </div>
                       </div>
                     </article>
                   );
@@ -838,141 +1007,180 @@ export function OdontoDemoClient({
             </div>
           </section>
 
-          {/* SOBRE A CLÍNICA — YOUR TRUSTED DENTAL CLINIC (SMILEORA + BRIGHTBITE) */}
-          <section id="sobre" className="py-16 bg-white border-y border-[#DCE8E2]">
-            <div className="max-w-6xl mx-auto px-4 grid lg:grid-cols-12 gap-10 items-center">
-              <div className="lg:col-span-6 relative">
-                <div className="rounded-[32px] overflow-hidden border-4 border-[#EAF3EE] shadow-xl aspect-[4/3]">
-                  <img
-                    src="/images/about-dentist-care.jpg"
-                    alt={`Atendimento humanizado na ${clinic.name}`}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="mt-4 sm:mt-0 sm:absolute -bottom-5 left-6 bg-white border border-[#DCE8E2] rounded-2xl p-4 shadow-lg inline-flex items-center gap-3">
-                  <div
-                    className="w-10 h-10 rounded-xl text-white flex items-center justify-center font-bold"
-                    style={{ backgroundColor: brandColor }}
-                  >
-                    ✓
-                  </div>
-                  <div>
-                    <strong className="block text-sm text-[#0E2925]">
-                      Segurança &amp; Confiança
-                    </strong>
-                    <span className="text-xs text-[#4A6862]">
-                      Protocolos rigorosos de biossegurança
-                    </span>
-                  </div>
-                </div>
+          {/* CONFORTO, TECNOLOGIA & TRANSPARÊNCIA FINANCEIRA (100% TEXTO EXPLICATIVO, SEM FOTO GIGANTE) */}
+          <section id="estrutura" className="py-16 bg-[#0E2925] text-[#F1F8F5]">
+            <div className="max-w-6xl mx-auto px-4">
+              <div className="max-w-2xl mb-8">
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-300">
+                  CONFORTO, PRECISÃO &amp; BIOSSEGURANÇA
+                </span>
+                <h2 className="font-serif text-3xl sm:text-4xl font-bold mt-1 text-white">
+                  Estrutura Pensada para Quem Tem Receio de Dentista
+                </h2>
+                <p className="text-sm text-emerald-100/85 mt-2 leading-relaxed">
+                  Substituímos procedimentos antigos e demorados por recursos modernos que tornam
+                  o atendimento mais rápido, silencioso e previsível:
+                </p>
               </div>
 
-              <div className="lg:col-span-6 space-y-5">
-                <span className="inline-block px-3.5 py-1 rounded-full bg-[#E3EFEA] text-xs font-bold text-[#0F4C5C]">
-                  Sobre a {clinic.name} •
-                </span>
-                <h2 className="font-serif text-3xl sm:text-4xl font-bold text-[#0E2925] leading-tight">
-                  Sua Clínica Odontológica{" "}
-                  <span className="italic font-normal" style={{ color: brandColor }}>
-                    de Confiança
-                  </span>
-                </h2>
-                <p className="text-[#4A6862] text-sm sm:text-base leading-relaxed">
-                  Combinamos tecnologia de diagnóstico digital com um atendimento acolhedor e sem
-                  pressa. Na <strong>{clinic.name}</strong>, você entende cada etapa do seu
-                  tratamento na tela antes de tomar qualquer decisão.
-                </p>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <article className="bg-white/6 border border-white/12 rounded-3xl p-5 space-y-2">
+                  <h3 className="font-serif text-lg font-bold text-white">
+                    Anestesia Cuidadosa &amp; Sem Pressa
+                  </h3>
+                  <p className="text-sm text-emerald-100/80 leading-relaxed">
+                    Utilizamos anestésicos tópicos prévios e controle suave de aplicação para
+                    eliminar o desconforto da anestesia tradicional.
+                  </p>
+                </article>
 
-                <div className="space-y-3 pt-2">
-                  {[
-                    {
-                      title: "Equipe de Especialistas",
-                      desc: "Profissionais dedicados por especialidade com registro CRO ativo."
-                    },
-                    {
-                      title: "Tecnologia Moderna 3D",
-                      desc: "Câmera intraoral e planejamento digital para tratamentos previsíveis."
-                    },
-                    {
-                      title: "Ambiente Confortável",
-                      desc: "Atendimento gentil pensado para eliminar a ansiedade de ir ao dentista."
-                    }
-                  ].map((item) => (
-                    <div
-                      key={item.title}
-                      className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-[#F6F9F7] border border-[#DCE8E2]"
-                    >
-                      <div
-                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold text-xs"
-                        style={{ backgroundColor: "#DCECE5", color: brandColor }}
-                      >
-                        ✓
-                      </div>
-                      <div>
-                        <strong className="block text-sm text-[#0E2925]">{item.title}</strong>
-                        <span className="text-xs text-[#4A6862]">{item.desc}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <article className="bg-white/6 border border-white/12 rounded-3xl p-5 space-y-2">
+                  <h3 className="font-serif text-lg font-bold text-white">
+                    Escaneamento Intraoral 3D
+                  </h3>
+                  <p className="text-sm text-emerald-100/80 leading-relaxed">
+                    Substitui as massinhas de moldagem que causam náusea por uma leitura digital em
+                    segundos com precisão milimétrica.
+                  </p>
+                </article>
 
-                <div className="pt-2">
-                  <a
-                    href="#agendar"
-                    className="inline-flex items-center gap-2 text-white font-bold text-sm px-6 py-3 rounded-full"
-                    style={{ backgroundColor: brandColor }}
-                  >
-                    <span>Agendar Avaliação</span>
-                    <span aria-hidden="true">→</span>
-                  </a>
-                </div>
+                <article className="bg-white/6 border border-white/12 rounded-3xl p-5 space-y-2">
+                  <h3 className="font-serif text-lg font-bold text-white">
+                    Esterilização Hospitalar Classe B
+                  </h3>
+                  <p className="text-sm text-emerald-100/80 leading-relaxed">
+                    Protocolo rigoroso com autoclave hospitalar e kits individuais lacrados e
+                    rastreados por paciente em todos os atendimentos.
+                  </p>
+                </article>
+
+                <article className="bg-white/6 border border-white/12 rounded-3xl p-5 space-y-2">
+                  <h3 className="font-serif text-lg font-bold text-white">
+                    Transparência Financeira &amp; Reembolso
+                  </h3>
+                  <p className="text-sm text-emerald-100/80 leading-relaxed">
+                    Orçamento fechado antes de iniciar, parcelamento em até 12x e emissão de laudo
+                    e nota fiscal para reembolso no seu plano.
+                  </p>
+                </article>
               </div>
             </div>
           </section>
 
-          {/* ESTRUTURA & TECNOLOGIA (PURESMILE STATE-OF-THE-ART) */}
-          <section id="estrutura" className="py-16">
-            <div className="max-w-6xl mx-auto px-4 grid lg:grid-cols-12 gap-10 items-center">
-              <div className="lg:col-span-6 space-y-5">
+          {/* CORPO CLÍNICO + A FALA DE CADA ESPECIALISTA */}
+          <section id="equipe" className="py-16 bg-white border-b border-[#DCE8E2]">
+            <div className="max-w-6xl mx-auto px-4">
+              <div className="max-w-2xl mb-10">
                 <span className="text-xs font-bold uppercase tracking-[0.18em] text-[#3C6E63]">
-                  — ESTRUTURA &amp; TECNOLOGIA (DEMO) —
+                  CORPO CLÍNICO COM CRO ATIVO
                 </span>
-                <h2 className="font-serif text-3xl sm:text-4xl font-bold text-[#0E2925] leading-tight">
-                  Consultório Preparado para o Seu Conforto
+                <h2 className="font-serif text-3xl sm:text-4xl font-bold text-[#0E2925] mt-1">
+                  Quem Cuida do Seu Sorriso — e Como Pensamos
                 </h2>
-                <p className="text-sm sm:text-base text-[#4A6862] leading-relaxed">
-                  Nossa estrutura foi planejada para tornar cada visita tranquila, rápida e segura —
-                  desde a recepção até os equipamentos digitais de última geração.
+                <p className="text-sm text-[#4A6862] mt-1">
+                  Conheça a formação e a filosofia de trabalho de cada especialista da{" "}
+                  <strong>{clinic.name}</strong>:
                 </p>
-
-                <ul className="space-y-2.5 text-sm text-[#112A26]">
-                  {[
-                    "Escaneamento intraoral 3D para planejamento preciso",
-                    "Câmera digital de alta definição para diagnóstico visual na tela",
-                    "Anestesia cuidadosa e protocolos para pacientes com sensibilidade",
-                    "Esterilização hospitalar rastreada a cada atendimento"
-                  ].map((bullet) => (
-                    <li key={bullet} className="flex items-center gap-2.5">
-                      <span
-                        className="w-5 h-5 rounded-full text-white text-[11px] flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: brandColor }}
-                      >
-                        ✓
-                      </span>
-                      <span>{bullet}</span>
-                    </li>
-                  ))}
-                </ul>
               </div>
 
-              <div className="lg:col-span-6 relative">
-                <div className="rounded-[32px] overflow-hidden border-4 border-white shadow-xl aspect-[16/10]">
-                  <img
-                    src="/images/clinic-interior.jpg"
-                    alt={`Estrutura interna da ${clinic.name}`}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
+              <div className="grid md:grid-cols-3 gap-5">
+                {initialStaff.map((s) => (
+                  <article
+                    key={s.id}
+                    className="bg-[#F6F9F7] border border-[#DCE8E2] rounded-3xl p-6 flex flex-col justify-between space-y-4"
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-12 h-12 rounded-2xl font-serif font-bold flex items-center justify-center text-white shrink-0"
+                          style={{ backgroundColor: brandColor }}
+                        >
+                          {getInitials(s.displayName.replace(/^(Dr\.|Dra\.)\s+/i, ""))}
+                        </div>
+                        <div>
+                          <h3 className="font-serif text-lg font-bold text-[#0E2925]">
+                            {s.displayName}
+                          </h3>
+                          <span className="block text-xs font-bold text-[#3C6E63]">
+                            {s.specialty} · {s.croRegistration}
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="text-sm text-[#385751] leading-relaxed">{s.bio}</p>
+                    </div>
+
+                    <blockquote className="bg-white border border-[#DCE8E2] rounded-2xl p-3.5 text-xs italic text-[#112A26] leading-relaxed">
+                      {STAFF_QUOTES[s.id] ??
+                        "“Nosso foco é unir precisão técnica e escuta atenta em cada consulta.”"}
+                    </blockquote>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* FALAS DOS PACIENTES (DEPOIMENTOS DETALHADOS) */}
+          <section id="depoimentos" className="py-16 bg-[#F6F9F7]">
+            <div className="max-w-6xl mx-auto px-4">
+              <div className="text-center max-w-2xl mx-auto mb-10">
+                <span className="text-xs font-bold uppercase tracking-[0.2em] text-[#3C6E63]">
+                  — A VOZ DOS NOSSOS PACIENTES —
+                </span>
+                <h2 className="font-serif text-3xl sm:text-4xl font-bold text-[#0E2925] mt-1">
+                  O Que Dizem Quem Já Transformou o Sorriso Conosco
+                </h2>
+                <p className="text-sm text-[#4A6862] mt-1">
+                  Relatos ilustrativos que demonstram como a comunicação clara e o cuidado sem
+                  pressa fazem diferença na experiência do paciente.
+                </p>
+              </div>
+
+              <div className="grid md:grid-cols-3 gap-5">
+                {[
+                  {
+                    quote:
+                      "“Eu adiava minha ida ao dentista há quase 4 anos por medo de sentir dor. Na primeira consulta a doutora me mostrou tudo na câmera intraoral, explicou sem pressa e não senti absolutamente nada no procedimento.”",
+                    author: "Mariana Siqueira",
+                    role: "Prevenção & Clareamento Dental",
+                    tag: "Zero dor e acolhimento"
+                  },
+                  {
+                    quote:
+                      "“O que mais me conquistou foi a transparência. Fizeram o escaneamento 3D sem aquela massinha desconfortável, simularam o alinhamento dos meus dentes na tela e cumpriram cada prazo prometido.”",
+                    author: "Rafael Mendes",
+                    role: "Ortodontia & Alinhadores Transparentes",
+                    tag: "Planejamento 3D preciso"
+                  },
+                  {
+                    quote:
+                      "“Tive uma dor aguda numa terça-feira de manhã, solicitei o encaixe de urgência pelo site e em poucas horas já estava sendo atendida. Resolveram a dor no mesmo dia e explicaram todo o orçamento antes.”",
+                    author: "Cláudia Ferreira",
+                    role: "Atendimento de Urgência & Endodontia",
+                    tag: "Encaixe rápido no mesmo dia"
+                  }
+                ].map((item) => (
+                  <article
+                    key={item.author}
+                    className="bg-white border border-[#DCE8E2] rounded-3xl p-6 flex flex-col justify-between space-y-4 shadow-xs"
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-amber-500 text-sm tracking-widest">★★★★★</span>
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#E3EFEA] text-[#0F4C5C]">
+                          {item.tag}
+                        </span>
+                      </div>
+                      <p className="text-sm text-[#112A26] leading-relaxed italic">
+                        {item.quote}
+                      </p>
+                    </div>
+                    <div className="pt-3 border-t border-[#DCE8E2]">
+                      <strong className="block text-sm text-[#0E2925]">{item.author}</strong>
+                      <span className="text-xs text-[#4A6862]">{item.role}</span>
+                    </div>
+                  </article>
+                ))}
               </div>
             </div>
           </section>
@@ -982,13 +1190,14 @@ export function OdontoDemoClient({
             <div className="max-w-6xl mx-auto px-4">
               <div className="text-center max-w-2xl mx-auto mb-10">
                 <span className="text-xs font-bold uppercase tracking-[0.2em] text-[#3C6E63]">
-                  — AGENDA ONLINE —
+                  — AGENDA ONLINE EM TEMPO REAL —
                 </span>
                 <h2 className="font-serif text-3xl sm:text-4xl font-bold text-[#0E2925] mt-1">
-                  Solicite seu Horário na {clinic.name}
+                  Reserve seu Horário na {clinic.name}
                 </h2>
                 <p className="text-sm text-[#4A6862] mt-1">
-                  Selecione o especialista, o melhor dia e envie sua solicitação de consulta.
+                  Escolha o especialista, o melhor dia e horário e envie sua solicitação sem
+                  depender de espera no telefone.
                 </p>
               </div>
 
@@ -1102,7 +1311,7 @@ export function OdontoDemoClient({
 
                 <aside className="lg:col-span-5 lg:sticky lg:top-24 bg-white border border-[#DCE8E2] rounded-3xl p-6 shadow-md">
                   <h3 className="font-serif text-xl font-bold mb-4 text-[#0E2925]">
-                    Resumo da Solicitação
+                    Resumo da Consulta
                   </h3>
 
                   <div className="bg-[#F6F9F7] border border-[#DCE8E2] rounded-2xl p-4 space-y-2 text-sm mb-4">
@@ -1205,14 +1414,14 @@ export function OdontoDemoClient({
                       </div>
                       <div>
                         <label htmlFor="p-notes" className="block text-xs font-bold mb-1">
-                          Observação administrativa (opcional)
+                          Alguma observação ou sensibilidade? (opcional)
                         </label>
                         <input
                           id="p-notes"
                           type="text"
                           value={patientNotes}
                           onChange={(e) => setPatientNotes(e.target.value)}
-                          placeholder="Ex: Preferência de horário à tarde"
+                          placeholder="Ex: Primeira consulta, preferência à tarde..."
                           className="w-full border border-[#CFE2D9] rounded-xl px-3.5 py-2.5 text-sm"
                         />
                       </div>
@@ -1224,89 +1433,11 @@ export function OdontoDemoClient({
                         className="w-full text-white font-bold text-sm py-3.5 rounded-full cursor-pointer shadow-sm"
                         style={{ backgroundColor: brandColor }}
                       >
-                        Solicitar Horário →
+                        Confirmar Minha Solicitação →
                       </button>
                     </form>
                   )}
                 </aside>
-              </div>
-            </div>
-          </section>
-
-          {/* CORPO CLÍNICO & DEPOIMENTOS (SMILEORA TESTIMONIALS) */}
-          <section id="equipe" className="py-16">
-            <div className="max-w-6xl mx-auto px-4">
-              <div className="text-center max-w-2xl mx-auto mb-10">
-                <span className="text-xs font-bold uppercase tracking-[0.2em] text-[#3C6E63]">
-                  — CORPO CLÍNICO (EXEMPLO DEMO) —
-                </span>
-                <h2 className="font-serif text-3xl sm:text-4xl font-bold text-[#0E2925] mt-1">
-                  Quem Cuida do Seu Sorriso
-                </h2>
-              </div>
-              <div className="grid md:grid-cols-3 gap-5">
-                {initialStaff.map((s) => (
-                  <article
-                    key={s.id}
-                    className="bg-white border border-[#DCE8E2] rounded-3xl p-6 shadow-xs"
-                  >
-                    <div
-                      className="w-12 h-12 rounded-2xl font-serif font-bold flex items-center justify-center mb-4 text-white"
-                      style={{ backgroundColor: brandColor }}
-                    >
-                      {getInitials(s.displayName.replace(/^(Dr\.|Dra\.)\s+/i, ""))}
-                    </div>
-                    <h3 className="font-serif text-lg font-bold text-[#0E2925]">
-                      {s.displayName}
-                    </h3>
-                    <span className="block text-xs font-bold text-[#3C6E63] mb-2">
-                      {s.specialty} · {s.croRegistration}
-                    </span>
-                    <p className="text-sm text-[#4A6862]">{s.bio}</p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* DEPOIMENTOS ESTILO SMILEORA */}
-          <section id="depoimentos" className="py-14 bg-white border-t border-[#DCE8E2]">
-            <div className="max-w-5xl mx-auto px-4 text-center">
-              <span className="text-xs font-bold uppercase tracking-[0.2em] text-[#3C6E63]">
-                — EXPERIÊNCIA DO PACIENTE (DEMO) —
-              </span>
-              <h2 className="font-serif text-3xl sm:text-4xl font-bold text-[#0E2925] mt-1 mb-8">
-                O Que Nossos Pacientes Dizem
-              </h2>
-              <div className="grid md:grid-cols-2 gap-6 text-left">
-                {[
-                  {
-                    quote:
-                      "Atendimento impecável! A equipe é atenciosa, explicou tudo na tela 3D e tornou minha consulta muito tranquila.",
-                    author: "Mariana S. (Depoimento Ilustrativo)",
-                    role: "Prevenção & Clareamento"
-                  },
-                  {
-                    quote:
-                      "Agendei pelo celular em menos de um minuto, fui atendido no horário exato e com total transparência no plano de tratamento.",
-                    author: "Rafael M. (Depoimento Ilustrativo)",
-                    role: "Ortodontia & Alinhadores"
-                  }
-                ].map((item) => (
-                  <div
-                    key={item.author}
-                    className="bg-[#F6F9F7] border border-[#DCE8E2] rounded-3xl p-6 space-y-3"
-                  >
-                    <div className="text-amber-500 text-sm tracking-widest">★★★★★</div>
-                    <p className="text-sm sm:text-base text-[#112A26] italic">
-                      “{item.quote}”
-                    </p>
-                    <div>
-                      <strong className="block text-sm text-[#0E2925]">{item.author}</strong>
-                      <span className="text-xs text-[#4A6862]">{item.role}</span>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           </section>
@@ -1320,7 +1451,7 @@ export function OdontoDemoClient({
                     PERGUNTAS FREQUENTES
                   </span>
                   <h2 className="font-serif text-3xl font-bold text-[#0E2925] mt-1">
-                    Tire Suas Dúvidas
+                    Tire Suas Dúvidas Antes da Consulta
                   </h2>
                 </div>
                 <input
@@ -1342,7 +1473,7 @@ export function OdontoDemoClient({
                     <summary className="font-bold text-sm cursor-pointer text-[#0E2925]">
                       {faq.question}
                     </summary>
-                    <p className="text-sm text-[#4A6862] mt-2">{faq.answer}</p>
+                    <p className="text-sm text-[#4A6862] mt-2 leading-relaxed">{faq.answer}</p>
                   </details>
                 ))}
               </div>
@@ -1350,7 +1481,7 @@ export function OdontoDemoClient({
           </section>
 
           {/* BANNER CTA INFERIOR ESTILO SMILEORA */}
-          <section id="contato" className=" pb-16 pt-4">
+          <section id="contato" className="pb-16 pt-4">
             <div className="max-w-6xl mx-auto px-4">
               <div
                 className="rounded-[32px] p-8 sm:p-10 text-white flex flex-wrap items-center justify-between gap-6 shadow-xl"
@@ -1371,7 +1502,7 @@ export function OdontoDemoClient({
                   </div>
                   <div>
                     <h2 className="font-serif text-2xl sm:text-3xl font-bold">
-                      Pronto para Conquistar Seu Melhor Sorriso?
+                      Pronto para Cuidar do Seu Sorriso com Tranquilidade?
                     </h2>
                     <p className="text-sm text-white/85 mt-1">
                       {clinic.address} · {clinic.hoursLabel}
@@ -1448,8 +1579,8 @@ export function OdontoDemoClient({
                 {(
                   [
                     ["all", "Todos"],
-                    ["CONFIRMED", "Confirmadas"],
                     ["REQUESTED", "Solicitadas"],
+                    ["CONFIRMED", "Confirmadas"],
                     ["CANCELLED", "Canceladas"]
                   ] as const
                 ).map(([st, label]) => (
@@ -1457,10 +1588,10 @@ export function OdontoDemoClient({
                     key={st}
                     type="button"
                     onClick={() => setStatusFilter(st)}
-                    className={`px-3.5 py-1.5 rounded-full text-xs font-bold border cursor-pointer ${
+                    className={`px-3 py-1 rounded-full text-xs font-bold border cursor-pointer ${
                       statusFilter === st
                         ? "bg-[#0E2925] text-white border-[#0E2925]"
-                        : "bg-[#F6F9F7] text-[#4A6862] border-[#DCE8E2]"
+                        : "bg-white text-[#4A6862] border-[#DCE8E2]"
                     }`}
                   >
                     {label}
@@ -1469,43 +1600,63 @@ export function OdontoDemoClient({
               </div>
             </div>
 
-            <div className="space-y-2.5">
-              {filteredAdminList.map((apt) => (
+            <div className="space-y-3">
+              {filteredAppointments.map((apt) => (
                 <div
                   key={apt.id}
-                  className="flex flex-wrap items-center justify-between gap-3 p-4 border border-[#DCE8E2] rounded-2xl"
+                  className="bg-[#F6F9F7] border border-[#DCE8E2] rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4"
                 >
                   <div>
-                    <strong className="block text-sm text-[#0E2925]">
-                      {apt.patientName} · {apt.treatmentName} ({formatBRL(apt.demoPriceBrl)})
-                    </strong>
+                    <strong className="text-sm block text-[#0E2925]">{apt.patientName}</strong>
                     <span className="text-xs text-[#4A6862]">
-                      {apt.dateLabel} às {apt.slotTime} · {apt.professionalName} ·{" "}
-                      {apt.patientPhone}
+                      {apt.treatmentName} · {apt.dentistName}
                     </span>
+                    {apt.administrativeNotes && (
+                      <span className="block text-xs italic text-[#4A6862] mt-0.5">
+                        Obs: “{apt.administrativeNotes}”
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#E3EFEA] text-[#0E2925]">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="text-right text-xs">
+                      <strong className="block">
+                        {apt.dateLabel} às {apt.slotTime}
+                      </strong>
+                      <span className="text-[#4A6862]">
+                        {apt.patientPhone} · {formatBRL(apt.demoPriceBrl)}
+                      </span>
+                    </div>
+                    <span
+                      className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                        apt.status === "CONFIRMED"
+                          ? "bg-emerald-100 text-emerald-900"
+                          : apt.status === "CANCELLED"
+                            ? "bg-red-100 text-red-900"
+                            : "bg-amber-100 text-amber-900"
+                      }`}
+                    >
                       {statusBadgeLabel(apt.status)}
                     </span>
-                    {apt.status !== "CONFIRMED" && (
-                      <button
-                        type="button"
-                        onClick={() => updateStatus(apt.id, "CONFIRMED")}
-                        className="text-xs font-bold px-3 py-1 rounded-full border border-[#CFE2D9] cursor-pointer"
-                      >
-                        Confirmar
-                      </button>
-                    )}
-                    {apt.status !== "CANCELLED" && (
-                      <button
-                        type="button"
-                        onClick={() => updateStatus(apt.id, "CANCELLED")}
-                        className="text-xs font-bold px-3 py-1 rounded-full border border-[#CFE2D9] cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                    )}
+                    <div className="flex gap-1.5">
+                      {apt.status !== "CONFIRMED" && (
+                        <button
+                          type="button"
+                          onClick={() => updateAppointmentStatus(apt.id, "CONFIRMED")}
+                          className="px-2.5 py-1 rounded-lg border border-[#CFE2D9] bg-white text-xs font-bold text-emerald-800 cursor-pointer"
+                        >
+                          Confirmar
+                        </button>
+                      )}
+                      {apt.status !== "CANCELLED" && (
+                        <button
+                          type="button"
+                          onClick={() => updateAppointmentStatus(apt.id, "CANCELLED")}
+                          className="px-2.5 py-1 rounded-lg border border-[#CFE2D9] bg-white text-xs font-bold text-red-800 cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1517,16 +1668,14 @@ export function OdontoDemoClient({
       {/* DRAWER DE PERSONALIZAÇÃO */}
       {drawerOpen && (
         <aside
-          className="fixed inset-0 z-50 flex justify-end"
           aria-label="Personalize sua clínica"
+          className="fixed inset-0 z-50 flex justify-end bg-black/45"
         >
-          <div
-            className="absolute inset-0 bg-[#0E2925]/50"
-            onClick={() => setDrawerOpen(false)}
-          />
-          <div className="relative z-10 w-full max-w-md bg-white h-full overflow-y-auto p-6 space-y-4">
+          <div className="bg-white w-full max-w-md h-full p-6 overflow-y-auto space-y-5 shadow-2xl">
             <div className="flex items-center justify-between">
-              <h3 className="font-serif text-xl font-bold">Personalize sua Clínica</h3>
+              <h3 className="font-serif text-xl font-bold text-[#0E2925]">
+                Personalize sua Clínica
+              </h3>
               <button
                 type="button"
                 onClick={() => setDrawerOpen(false)}
@@ -1537,16 +1686,17 @@ export function OdontoDemoClient({
             </div>
 
             <div>
-              <label className="block text-xs font-bold mb-1">
-                Nome da Sua Odontologia
-              </label>
+              <label className="block text-xs font-bold mb-1">Nome da Sua Odontologia</label>
               <input
                 type="text"
                 value={clinic.name}
                 onChange={(e) =>
-                  setClinic((prev) => ({ ...prev, name: e.target.value || initialClinic.name }))
+                  setClinic((prev) => ({
+                    ...prev,
+                    name: e.target.value || initialClinic.name
+                  }))
                 }
-                className="w-full border border-[#CFE2D9] rounded-xl px-3 py-2 text-sm"
+                className="w-full border border-[#CFE2D9] rounded-xl px-3.5 py-2 text-sm"
               />
             </div>
 
@@ -1556,14 +1706,12 @@ export function OdontoDemoClient({
                 type="text"
                 value={clinic.address}
                 onChange={(e) => setClinic((prev) => ({ ...prev, address: e.target.value }))}
-                className="w-full border border-[#CFE2D9] rounded-xl px-3 py-2 text-sm"
+                className="w-full border border-[#CFE2D9] rounded-xl px-3.5 py-2 text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold mb-1">
-                Cor Principal da Clínica
-              </label>
+              <label className="block text-xs font-bold mb-1">Cor Principal da Clínica</label>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
@@ -1575,7 +1723,7 @@ export function OdontoDemoClient({
                     }))
                   }
                 />
-                {["#0F4C5C", "#13403B", "#2563EB", "#1E3A5F"].map((c) => (
+                {["#0F4C5C", "#1B4332", "#1E3A5F", "#8C4A32"].map((c) => (
                   <button
                     key={c}
                     type="button"
@@ -1602,7 +1750,7 @@ export function OdontoDemoClient({
                 value={newProcName}
                 onChange={(e) => setNewProcName(e.target.value)}
                 placeholder="Nome do procedimento"
-                className="w-full border border-[#CFE2D9] rounded-xl px-3 py-2 text-sm"
+                className="w-full border border-[#CFE2D9] rounded-xl px-3.5 py-2 text-sm"
               />
               <div className="grid grid-cols-2 gap-2">
                 <input
@@ -1610,14 +1758,14 @@ export function OdontoDemoClient({
                   value={newProcPrice}
                   onChange={(e) => setNewProcPrice(e.target.value)}
                   placeholder="Valor (R$)"
-                  className="border border-[#CFE2D9] rounded-xl px-3 py-2 text-sm"
+                  className="border border-[#CFE2D9] rounded-xl px-3.5 py-2 text-sm"
                 />
                 <input
                   type="number"
                   value={newProcDur}
                   onChange={(e) => setNewProcDur(e.target.value)}
                   placeholder="Minutos"
-                  className="border border-[#CFE2D9] rounded-xl px-3 py-2 text-sm"
+                  className="border border-[#CFE2D9] rounded-xl px-3.5 py-2 text-sm"
                 />
               </div>
               <button
@@ -1634,14 +1782,25 @@ export function OdontoDemoClient({
       )}
 
       {/* RODAPÉ */}
-      <footer className="bg-[#0E2925] text-slate-300 py-8 text-xs border-t border-white/10">
-        <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-between gap-3">
-          <span>
-            <strong className="text-white">{clinic.name}</strong> · {clinic.address}
-          </span>
-          <div className="flex items-center gap-4">
+      <footer className="bg-[#0B221E] text-slate-300 py-8 text-xs border-t border-white/10">
+        <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-8 h-8 rounded-xl text-white flex items-center justify-center font-bold"
+              style={{ backgroundColor: brandColor }}
+            >
+              SO
+            </div>
+            <span>
+              <strong className="text-white">{clinic.name}</strong> · {clinic.address}
+            </span>
+          </div>
+          <div className="flex items-center gap-4 flex-wrap">
             <Link href="/privacidade" className="underline hover:text-white">
               Privacidade &amp; LGPD
+            </Link>
+            <Link href="/admin" className="underline hover:text-white">
+              Portal Admin
             </Link>
             <span>
               Desenvolvido por <strong className="text-white">Joel Oliveira.</strong>
