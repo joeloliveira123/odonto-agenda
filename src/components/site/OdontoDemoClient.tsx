@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { OdontoAssistantWidget } from "@/components/site/OdontoAssistantWidget";
 import type {
   AppointmentRequest,
   AppointmentStatus,
@@ -1300,6 +1301,8 @@ export function OdontoDemoClient({
           </div>
         </div>
       </footer>
+
+      <OdontoAssistantWidget tenantId={clinic.tenantId} clinicName={clinic.name} />
     </div>
   );
 }
