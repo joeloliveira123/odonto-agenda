@@ -74,6 +74,41 @@ export class InMemoryTenantDataProvider implements TenantDataProvider {
     return [...(this.appointments.get(tenantId) ?? [])];
   }
 
+  async listAllFaqs(tenantId: string): Promise<FAQ[]> {
+    return [...(this.faqs.get(tenantId) ?? [])];
+  }
+
+  async listAllTreatments(tenantId: string): Promise<Treatment[]> {
+    return [...(this.treatments.get(tenantId) ?? [])];
+  }
+
+  async updateClinic(
+    tenantId: string,
+    patch: Partial<Pick<Clinic, "name" | "subtitle" | "address" | "hoursLabel" | "whatsappPhone">>
+  ): Promise<Clinic> {
+    const clinic = this.clinics.get(tenantId);
+    if (!clinic) throw new Error("Clínica não encontrada.");
+    const updated = { ...clinic, ...patch };
+    this.clinics.set(tenantId, updated);
+    return updated;
+  }
+
+  async toggleTreatmentActive(tenantId: string, treatmentId: string): Promise<Treatment> {
+    const list = this.treatments.get(tenantId) ?? [];
+    const target = list.find((t) => t.id === treatmentId);
+    if (!target) throw new Error("Tratamento não encontrado.");
+    target.active = !target.active;
+    return target;
+  }
+
+  async toggleFaqPublication(tenantId: string, faqId: string): Promise<FAQ> {
+    const list = this.faqs.get(tenantId) ?? [];
+    const target = list.find((f) => f.id === faqId);
+    if (!target) throw new Error("FAQ não encontrada.");
+    target.publicationStatus = target.publicationStatus === "published" ? "draft" : "published";
+    return target;
+  }
+
   async createAppointmentRequest(input: AppointmentRequestInput): Promise<AppointmentRequest> {
     const parsed = appointmentRequestInputSchema.parse(input);
     const tenantTreatments = this.treatments.get(parsed.tenantId) ?? [];
