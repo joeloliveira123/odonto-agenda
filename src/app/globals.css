@@ -1,16 +1,21 @@
 @import "tailwindcss";
 
+@theme inline {
+  --font-sans: var(--font-sans), system-ui, sans-serif;
+  --font-serif: var(--font-serif), Georgia, serif;
+}
+
 :root {
   --brand: #0f4c5c;
   --brand-soft: rgba(15, 76, 92, 0.09);
   --warm: #c87d55;
-  --sand: #f3efe9;
-  --sage: #dce8e2;
-  --ivory: #faf8f5;
+  --sand: #edf5f1;
+  --sage: #dceee6;
+  --ivory: #f7faf8;
   --surface: #ffffff;
-  --ink: #14212b;
-  --muted: #52606d;
-  --border: #e5dfd7;
+  --ink: #0d2925;
+  --muted: #4a6862;
+  --border: #dce8e2;
 }
 
 html {
