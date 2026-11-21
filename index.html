@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sua Odontologia | Odontologia Estética, Preventiva e Agendamento Online</title>
+    <meta
+      name="description"
+      content="Experimente um site completo para Sua Odontologia: tratamentos, corpo clínico com CRO, tecnologia 3D, avaliações, FAQ e agendamento online."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- BARRA DE AUTONOMIA DO DENTISTA -->
+    <div class="owner-bar">
+      <div class="container owner-bar-inner">
+        <label for="quick-clinic-name" class="owner-prompt">
+          Coloque o nome da <strong>Sua Odontologia</strong> e veja este site com a sua marca:
+        </label>
+        <div class="owner-controls">
+          <input
+            type="text"
+            id="quick-clinic-name"
+            placeholder="Ex: Odontologia Almeida"
+            aria-label="Nome da sua clínica"
+          />
+          <button id="open-customizer" type="button" class="btn-owner-edit">
+            Personalizar Clínica
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CABEÇALHO -->
+    <header class="site-header">
+      <div class="container header-inner">
+        <a href="#topo" class="brand">
+          <div class="brand-mark" id="clinic-logo" aria-hidden="true">SO</div>
+          <div>
+            <div class="brand-name" id="clinic-name">Sua Odontologia</div>
+            <div class="brand-meta" id="clinic-sub">Odontologia Humanizada · CRO-SP</div>
+          </div>
+        </a>
+
+        <nav class="main-nav" aria-label="Seções do site">
+          <a href="#tratamentos">Tratamentos</a>
+          <a href="#equipe">Corpo Clínico</a>
+          <a href="#tecnologia">Estrutura</a>
+          <a href="#duvidas">Dúvidas</a>
+        </nav>
+
+        <div class="header-right">
+          <div class="view-switch" role="tablist" aria-label="Alternar visão">
+            <button class="switch-btn active" data-view="patient" role="tab" aria-selected="true">
+              Visão do Paciente
+            </button>
+            <button class="switch-btn" data-view="clinic" role="tab" aria-selected="false">
+              Painel da Sua Clínica <span class="count-pill" id="clinic-badge">0</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main id="topo">
+      <!-- VISÃO DO PACIENTE -->
+      <section id="patient-view">
+        <!-- HERO EDITORIAL -->
+        <div class="hero-section">
+          <div class="container hero-grid">
+            <div class="hero-content">
+              <p class="hero-eyebrow">ATENDIMENTO SEM PRESSA · TECNOLOGIA 3D</p>
+              <h1 class="hero-title">
+                Cuidado odontológico gentil e preciso na <span id="hero-clinic-span">Sua Odontologia</span>.
+              </h1>
+              <p class="hero-lead">
+                Esqueça a espera no telefone. Conheça nossos especialistas, escolha o melhor dia e
+                horário e agende sua consulta ou encaixe de urgência em menos de um minuto.
+              </p>
+
+              <div class="hero-actions">
+                <a href="#agendar" class="btn-solid">Agendar Minha Consulta</a>
+                <a href="#urgencia" id="emergency-jump" class="btn-soft">Preciso de Urgência Hoje</a>
+              </div>
+
+              <div class="proof-strip">
+                <div class="proof-item">
+                  <strong>4.9 ★</strong>
+                  <span>340+ avaliações no Google</span>
+                </div>
+                <div class="proof-divider"></div>
+                <div class="proof-item">
+                  <strong>Scanner 3D</strong>
+                  <span>Sem moldagens desconfortáveis</span>
+                </div>
+                <div class="proof-divider"></div>
+                <div class="proof-item">
+                  <strong>Até 12x</strong>
+                  <span>Particular e reembolso</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="hero-showcase">
+              <div class="showcase-card">
+                <div class="showcase-top">
+                  <span>Avaliação Verificada</span>
+                  <span class="stars" aria-label="5 de 5 estrelas">★★★★★</span>
+                </div>
+                <blockquote>
+                  “Sempre tive receio de dentista, mas aqui fui atendida no horário exato, sem dor e
+                  com explicação clara de cada etapa do tratamento.”
+                </blockquote>
+                <div class="showcase-author">
+                  <div class="avatar-dot">MS</div>
+                  <div>
+                    <strong>Mariana Siqueira</strong>
+                    <span>Paciente de Clareamento &amp; Profilaxia</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="showcase-hours">
+                <div>
+                  <span class="mini-cap">Horário de Atendimento</span>
+                  <strong id="clinic-hours">Seg a Sex 08h–19h · Sáb 08h–14h</strong>
+                </div>
+                <div>
+                  <span class="mini-cap">Endereço &amp; Estacionamento</span>
+                  <strong id="clinic-address">Av. Paulista, 1420 · Convênio no local</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- POR QUE A SUA ODONTOLOGIA (CONTEXTO & AUTORIDADE) -->
+        <section id="sobre" class="section about-section">
+          <div class="container about-grid">
+            <div>
+              <span class="section-kicker">REFERÊNCIA EM ODONTOLOGIA</span>
+              <h2>
+                Uma das clínicas mais completas da região, com os melhores especialistas cuidando
+                de você.
+              </h2>
+            </div>
+            <div class="about-copy">
+              <p>
+                Na <strong class="clinic-inline-name">Sua Odontologia</strong>, você não é atendido
+                às pressas. Reunimos dentistas especialistas com formação de ponta, equipamentos
+                digitais de última geração e um atendimento humano pensado para tirar qualquer medo
+                de ir ao consultório.
+              </p>
+              <div class="about-points">
+                <div class="about-point">
+                  <strong>Corpo Clínico de Destaque</strong>
+                  <span>Especialistas em cada área — você passa com quem realmente domina o seu tratamento.</span>
+                </div>
+                <div class="about-point">
+                  <strong>Explicação Clara na Tela</strong>
+                  <span>Mostramos cada detalhe do diagnóstico digital antes de você decidir qualquer procedimento.</span>
+                </div>
+                <div class="about-point">
+                  <strong>Zero Surpresas no Orçamento</strong>
+                  <span>Plano transparente, valores claros e condições que cabem no seu planejamento.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SEÇÃO DE TRATAMENTOS + FILTRO POR CATEGORIA -->
+        <section id="tratamentos" class="section">
+          <div class="container">
+            <div class="section-head">
+              <div>
+                <span class="section-kicker">ESPECIALIDADES</span>
+                <h2>Tratamentos da <span class="clinic-inline-name">Sua Odontologia</span></h2>
+              </div>
+              <div class="cat-tabs" role="tablist" aria-label="Filtrar tratamentos">
+                <button class="cat-tab active" data-cat="all">Todos</button>
+                <button class="cat-tab" data-cat="Prevencao">Prevenção</button>
+                <button class="cat-tab" data-cat="Estetica">Estética</button>
+                <button class="cat-tab" data-cat="Reabilitacao">Ortodontia &amp; Implantes</button>
+              </div>
+            </div>
+
+            <div id="treatments-grid" class="treatments-grid"></div>
+          </div>
+        </section>
+
+        <!-- AGENDAMENTO INTEGRADO (2 COLUNAS) -->
+        <section id="agendar" class="section section-sand">
+          <div class="container">
+            <div class="section-head">
+              <div>
+                <span class="section-kicker">AGENDA EM TEMPO REAL</span>
+                <h2>Reserve seu Horário</h2>
+              </div>
+            </div>
+
+            <div class="booking-grid">
+              <div class="booking-left">
+                <div class="booking-block">
+                  <h3>1. Escolha o Especialista</h3>
+                  <div id="dentists-list" class="dentists-grid"></div>
+                </div>
+
+                <div class="booking-block">
+                  <h3>2. Escolha o Dia e o Horário</h3>
+                  <div id="days-grid" class="days-grid"></div>
+                  <div id="slots-grid" class="slots-grid"></div>
+                </div>
+              </div>
+
+              <aside class="checkout-card" aria-labelledby="checkout-heading">
+                <h3 id="checkout-heading">Resumo da Consulta</h3>
+
+                <div class="checkout-summary">
+                  <div class="cs-line">
+                    <span>Tratamento</span>
+                    <strong id="sum-service">Selecione um tratamento</strong>
+                  </div>
+                  <div class="cs-line">
+                    <span>Dentista</span>
+                    <strong id="sum-dentist">—</strong>
+                  </div>
+                  <div class="cs-line">
+                    <span>Data e Hora</span>
+                    <strong id="sum-datetime">Escolha o horário</strong>
+                  </div>
+                  <div class="cs-total">
+                    <span>Valor da Consulta</span>
+                    <strong id="sum-price">R$ 0,00</strong>
+                  </div>
+                </div>
+
+                <form id="patient-form" class="checkout-form">
+                  <div class="field">
+                    <label for="p-name">Seu Nome Completo</label>
+                    <input type="text" id="p-name" required placeholder="Ex: Ana Paula Ferreira" />
+                  </div>
+                  <div class="field">
+                    <label for="p-phone">Seu WhatsApp</label>
+                    <input type="tel" id="p-phone" required placeholder="(11) 99999-9999" />
+                  </div>
+                  <div class="field">
+                    <label for="p-notes">Alguma observação ou sensibilidade?</label>
+                    <input type="text" id="p-notes" placeholder="Ex: Primeira consulta, dor no dente..." />
+                  </div>
+                  <p id="form-error" class="form-error hidden"></p>
+                  <button type="submit" class="btn-solid btn-full">Confirmar Minha Consulta</button>
+                </form>
+
+                <div id="booking-success" class="booking-success hidden">
+                  <div class="check-circle" aria-hidden="true">✓</div>
+                  <h4>Horário Reservado!</h4>
+                  <p id="success-text"></p>
+                  <a id="wa-btn" href="#" target="_blank" rel="noopener noreferrer" class="btn-whatsapp">
+                    Enviar Comprovante no WhatsApp
+                  </a>
+                  <button id="another-btn" type="button" class="btn-link">Agendar outro horário</button>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </section>
+
+        <!-- CORPO CLÍNICO -->
+        <section id="equipe" class="section">
+          <div class="container">
+            <div class="section-head">
+              <div>
+                <span class="section-kicker">CORPO CLÍNICO</span>
+                <h2>Quem Cuida do Seu Sorriso</h2>
+              </div>
+            </div>
+            <div id="team-showcase" class="team-grid"></div>
+          </div>
+        </section>
+
+        <!-- TECNOLOGIA, CONFORTO E PAGAMENTO -->
+        <section id="tecnologia" class="section section-dark">
+          <div class="container">
+            <div class="section-head">
+              <div>
+                <span class="section-kicker kicker-light">CONFORTO &amp; PRECISÃO</span>
+                <h2 class="title-light">Estrutura Pensada para Quem Tem Receio de Dentista</h2>
+              </div>
+            </div>
+
+            <div class="pillars-grid">
+              <article class="pillar-card">
+                <h3>Anestesia Computadorizada</h3>
+                <p>Controle eletrônico de pressão que elimina o desconforto da aplicação tradicional.</p>
+              </article>
+              <article class="pillar-card">
+                <h3>Escaneamento Intraoral 3D</h3>
+                <p>Substitui as massinhas de moldagem por leitura digital em segundos com precisão milimétrica.</p>
+              </article>
+              <article class="pillar-card">
+                <h3>Esterilização Hospitalar</h3>
+                <p>Protocolo rigoroso com autoclave Classe B e instrumentais rastreados por paciente.</p>
+              </article>
+              <article class="pillar-card">
+                <h3>Transparência Financeira</h3>
+                <p>Orçamento fechado antes de iniciar, parcelamento em até 12x e nota fiscal para reembolso.</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <!-- DÚVIDAS FREQUENTES (FAQ) -->
+        <section id="duvidas" class="section">
+          <div class="container faq-wrap">
+            <div class="section-head">
+              <div>
+                <span class="section-kicker">PERGUNTAS FREQUENTES</span>
+                <h2>Tire Suas Dúvidas Antes da Consulta</h2>
+              </div>
+            </div>
+
+            <div class="faq-list">
+              <details class="faq-item" open>
+                <summary>Vocês atendem convênios odontológicos ou apenas particular?</summary>
+                <p>
+                  Trabalhamos com atendimento particular focado em tempo adequado para cada paciente e
+                  emitimos toda a documentação clínica e nota fiscal para reembolso junto ao seu plano.
+                </p>
+              </details>
+              <details class="faq-item">
+                <summary>Consigo encaixe no mesmo dia em caso de dor de dente?</summary>
+                <p>
+                  Sim. Reservamos horários diários para urgências odontológicas. Selecione o tratamento
+                  “Urgência / Alívio de Dor” acima para ver os encaixes livres de hoje.
+                </p>
+              </details>
+              <details class="faq-item">
+                <summary>Como funciona o pagamento e o parcelamento?</summary>
+                <p>
+                  Aceitamos PIX, cartão de débito e parcelamento em até 12x no cartão de crédito, com
+                  plano de tratamento detalhado antes do início de qualquer procedimento.
+                </p>
+              </details>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <!-- PAINEL DA SUA CLÍNICA -->
+      <section id="clinic-view" class="hidden">
+        <div class="container clinic-panel-wrap">
+          <div class="clinic-panel-head">
+            <div>
+              <span class="section-kicker">GESTÃO EM TEMPO REAL</span>
+              <h2>Painel da Sua Clínica — <span id="admin-clinic-name">Sua Odontologia</span></h2>
+              <p>Acompanhe seus clientes agendados pelo site, confirme horários e controle seu faturamento.</p>
+            </div>
+          </div>
+
+          <div class="kpi-strip">
+            <div class="kpi">
+              <span>Consultas Ativas</span>
+              <strong id="kpi-active">0</strong>
+            </div>
+            <div class="kpi">
+              <span>Confirmadas</span>
+              <strong id="kpi-confirmed">0</strong>
+            </div>
+            <div class="kpi">
+              <span>Aguardando Contato</span>
+              <strong id="kpi-pending">0</strong>
+            </div>
+            <div class="kpi kpi-accent">
+              <span>Receita Prevista</span>
+              <strong id="kpi-revenue">R$ 0,00</strong>
+            </div>
+          </div>
+
+          <div class="clients-card">
+            <div class="clients-head">
+              <h3>Seus Clientes Agendados</h3>
+              <div class="status-filters">
+                <button class="filter-chip active" data-status="all">Todos</button>
+                <button class="filter-chip" data-status="Confirmado">Confirmados</button>
+                <button class="filter-chip" data-status="Pendente">Pendentes</button>
+                <button class="filter-chip" data-status="Cancelado">Cancelados</button>
+              </div>
+            </div>
+            <div id="agenda-list" class="agenda-list"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- DRAWER DE PERSONALIZAÇÃO -->
+    <aside id="customizer-drawer" class="drawer hidden" aria-label="Personalize sua clínica">
+      <div class="drawer-backdrop" id="drawer-backdrop"></div>
+      <div class="drawer-panel">
+        <div class="drawer-head">
+          <h3>Personalize sua Clínica</h3>
+          <button id="close-customizer" class="drawer-close" aria-label="Fechar">✕</button>
+        </div>
+
+        <div class="drawer-body">
+          <div class="field">
+            <label for="cfg-name">Nome da Sua Odontologia</label>
+            <input type="text" id="cfg-name" />
+          </div>
+          <div class="field">
+            <label for="cfg-sub">Cidade e CRO</label>
+            <input type="text" id="cfg-sub" />
+          </div>
+          <div class="field">
+            <label for="cfg-address">Endereço da Sua Clínica</label>
+            <input type="text" id="cfg-address" />
+          </div>
+          <div class="field">
+            <label for="cfg-whatsapp">WhatsApp da Sua Recepção</label>
+            <input type="text" id="cfg-whatsapp" placeholder="5511999999999" />
+          </div>
+          <div class="field">
+            <label>Cor Principal da Sua Clínica</label>
+            <div class="color-row">
+              <input type="color" id="cfg-color" />
+              <button type="button" class="swatch" data-color="#0F4C5C" style="background:#0F4C5C" aria-label="Verde Petróleo"></button>
+              <button type="button" class="swatch" data-color="#1E3A5F" style="background:#1E3A5F" aria-label="Azul Marinho"></button>
+              <button type="button" class="swatch" data-color="#8C4A32" style="background:#8C4A32" aria-label="Terracota"></button>
+              <button type="button" class="swatch" data-color="#1B4332" style="background:#1B4332" aria-label="Verde Botânico"></button>
+            </div>
+          </div>
+
+          <hr class="divider" />
+
+          <div class="field">
+            <label>Adicione seu Procedimento</label>
+            <div class="add-grid">
+              <input type="text" id="new-proc-name" placeholder="Nome do procedimento" />
+              <input type="number" id="new-proc-price" placeholder="Valor (R$)" min="1" />
+              <input type="number" id="new-proc-dur" placeholder="Minutos" min="15" step="5" value="45" />
+              <button type="button" id="add-proc-btn" class="btn-solid btn-full">Adicionar à Lista</button>
+            </div>
+          </div>
+
+          <button type="button" id="reset-btn" class="btn-reset">Restaurar Padrão</button>
+        </div>
+      </div>
+    </aside>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <span><strong id="footer-name">Sua Odontologia</strong> · <span id="footer-address">Av. Paulista, 1420</span></span>
+        <span>Desenvolvido por <strong>Joel Oliveira.</strong></span>
+      </div>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
